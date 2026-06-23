@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DreamStick Adventures — Build Your Character</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0e0520;
+  color: #f4f0ff;
+  font-family: 'Nunito', sans-serif;
+  min-height: 100vh;
+  padding: 40px 20px;
+}
+.wrap { max-width: 700px; margin: 0 auto; }
+.logo {
+  font-family: 'Fredoka One', cursive;
+  font-size: 2.2rem;
+  color: #f7e96b;
+  text-align: center;
+  margin-bottom: 6px;
+}
+.logo span { color: #9b6fff; }
+.tagline {
+  text-align: center;
+  color: #8878bb;
+  font-size: 0.95rem;
+  margin-bottom: 32px;
+}
+.card {
+  background: #1c0d3a;
+  border: 1px solid rgba(155,111,255,0.22);
+  border-radius: 24px;
+  padding: 32px;
+  margin-bottom: 20px;
+}
+.card-title {
+  font-family: 'Fredoka One', cursive;
+  font-size: 1.4rem;
+  color: #f7e96b;
+  margin-bottom: 20px;
+}
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field.full { grid-column: 1 / -1; }
+label { font-size: 0.75rem; font-weight: 700; color: #8878bb; text-transform: uppercase; letter-spacing: 0.5px; }
+input, select {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(155,111,255,0.25);
+  border-radius: 10px;
+  color: #f4f0ff;
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.95rem;
+  padding: 10px 14px;
+  outline: none;
+  transition: border-color 0.2s;
+  width: 100%;
+}
+input:focus, select:focus { border-color: #9b6fff; }
+select option { background: #1c0d3a; }
+.tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.tag {
+  background: rgba(155,111,255,0.1);
+  border: 1.5px solid rgba(155,111,255,0.25);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  color: #8878bb;
+  transition: all 0.15s;
+  user-select: none;
+}
+.tag.on {
+  background: #9b6fff;
+  border-color: #9b6fff;
+  color: white;
+}
+.preview-box {
+  background: #0e0520;
+  border: 1px solid rgba(155,111,255,0.22);
+  border-radius: 16px;
+  padding: 20px;
+  text-align: center;
+  margin-bottom: 20px;
+}
+.preview-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #8878bb;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+canvas#preview {
+  display: block;
+  margin: 0 auto;
+  width: 200px;
+  height: 200px;
+}
+.submit-btn {
+  width: 100%;
+  background: linear-gradient(135deg, #9b6fff, #b06fff);
+  border: none;
+  border-radius: 14px;
+  color: white;
+  cursor: pointer;
+  font-family: 'Fredoka One', cursive;
+  font-size: 1.3rem;
+  padding: 16px;
+  transition: transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 4px 20px rgba(155,111,255,0.4);
+}
+.submit-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(155,111,255,0.5); }
+.submit-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.success {
+  display: none;
+  background: rgba(94,255,192,0.1);
+  border: 1px solid rgba(94,255,192,0.3);
+  border-radius: 16px;
+  padding: 40px 30px;
+  text-align: center;
+}
+.success h2 {
+  font-family: 'Fredoka One', cursive;
+  font-size: 2rem;
+  color: #5effc0;
+  margin-bottom: 10px;
+}
+.success p { color: #8878bb; font-size: 1rem; line-height: 1.6; }
+@media(max-width:600px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">Dream<span>Stick</span> Adventures ✦</div>
+  <div class="tagline">Where every child is the hero of their own story</div>
+
+  <div id="formSection">
+    <div class="card">
+      <div class="card-title">👤 About Your Child</div>
+      <div class="grid">
+        <div class="field">
+          <label>Child's Name</label>
+          <input type="text" id="child_name" placeholder="e.g. Kevin" maxlength="20">
+        </div>
+        <div class="field">
+          <label>Age</label>
+          <select id="child_age">
+            <option value="3">3 years old</option>
+            <option value="4">4 years old</option>
+            <option value="5">5 years old</option>
+            <option value="6" selected>6 years old</option>
+            <option value="7">7 years old</option>
+            <option value="8">8 years old</option>
+            <option value="9">9 years old</option>
+            <option value="10">10 years old</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Parent Email</label>
+          <input type="email" id="parent_email" placeholder="your@email.com">
+        </div>
+        <div class="field">
+          <label>Build</label>
+          <select id="build">
+            <option value="tiny">Tiny & speedy</option>
+            <option value="short">Short & mighty</option>
+            <option value="average" selected>Average</option>
+            <option value="tall">Tall & lean</option>
+            <option value="big">Big & strong</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🎨 Look & Style</div>
+      <div class="grid">
+        <div class="field">
+          <label>Hair Style</label>
+          <select id="hair_style" onchange="updatePreview()">
+            <option value="short">Short</option>
+            <option value="long">Long</option>
+            <option value="curly">Curly</option>
+            <option value="ponytail">Ponytail</option>
+            <option value="bun">Bun</option>
+            <option value="afro">Afro</option>
+            <option value="bald">Buzzcut</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Hair Color</label>
+          <select id="hair_color" onchange="updatePreview()">
+            <option value="#3a1e08">Dark Brown</option>
+            <option value="#8B4513">Light Brown</option>
+            <option value="#000000">Black</option>
+            <option value="#f7e96b">Blonde</option>
+            <option value="#cc4400">Red</option>
+            <option value="#888888">Grey</option>
+            <option value="#ffffff">White</option>
+            <option value="#9b59b6">Purple</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Skin Tone</label>
+          <select id="skin_tone" onchange="updatePreview()">
+            <option value="#fde8c8">Very Light</option>
+            <option value="#f0c080" selected>Light</option>
+            <option value="#d4956a">Medium Light</option>
+            <option value="#b87040">Medium</option>
+            <option value="#8B5E3C">Medium Dark</option>
+            <option value="#5c3317">Dark</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Outfit Color</label>
+          <select id="outfit_color" onchange="updatePreview()">
+            <option value="#e74c3c">Red</option>
+            <option value="#3498db">Blue</option>
+            <option value="#9b59b6" selected>Purple</option>
+            <option value="#2ecc71">Green</option>
+            <option value="#f39c12">Orange</option>
+            <option value="#e91e8c">Pink</option>
+            <option value="#1abc9c">Teal</option>
+            <option value="#f1c40f">Yellow</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Glow Color</label>
+          <select id="glow_color" onchange="updatePreview()">
+            <option value="#f7e96b" selected>Golden</option>
+            <option value="#9b6fff">Purple</option>
+            <option value="#5effc0">Green</option>
+            <option value="#ff6eb4">Pink</option>
+            <option value="#3498db">Blue</option>
+            <option value="#ff6b35">Orange</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Accessories</label>
+          <select id="accessories" onchange="updatePreview()">
+            <option value="none">None</option>
+            <option value="cape">Cape</option>
+            <option value="bow">Hair Bow</option>
+            <option value="glasses">Glasses</option>
+            <option value="crown">Crown</option>
+            <option value="hat">Baseball Cap</option>
+            <option value="cape_hat">Cape + Baseball Cap</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🐉 Sidekick & Adventure</div>
+      <div class="grid">
+        <div class="field">
+          <label>Sidekick</label>
+          <select id="sidekick">
+            <option value="none">No sidekick</option>
+            <option value="dog">🐶 Dog</option>
+            <option value="cat">🐱 Cat</option>
+            <option value="dragon">🐉 Baby Dragon</option>
+            <option value="robot">🤖 Robot Buddy</option>
+            <option value="unicorn">🦄 Unicorn</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Favorite Adventure Theme</label>
+          <div class="tags" id="themeTags">
+            <div class="tag on" data-v="space">🚀 Space</div>
+            <div class="tag" data-v="underwater">🌊 Underwater</div>
+            <div class="tag" data-v="jungle">🌿 Jungle</div>
+            <div class="tag" data-v="superhero">⚡ Superhero</div>
+            <div class="tag" data-v="princess">👑 Princess</div>
+            <div class="tag" data-v="dinosaurs">🦕 Dinosaurs</div>
+            <div class="tag" data-v="magic">🔮 Magic</div>
+            <div class="tag" data-v="pirates">🏴‍☠️ Pirates</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="preview-box">
+      <div class="preview-title">Your Child's Character Preview</div>
+      <canvas id="preview" width="200" height="200"></canvas>
+    </div>
+
+    <button class="submit-btn" id="submitBtn" onclick="submitCharacter()">
+      ✦ Save My Child's Character
+    </button>
+  </div>
+
+  <div class="success" id="successSection">
+    <h2>🌟 Adventure Awaits!</h2>
+    <p id="successMsg"></p>
+  </div>
+</div>
+
+<script>
+var selectedTheme = 'space';
+
+document.querySelectorAll('.tag').forEach(function(tag) {
+  tag.addEventListener('click', function() {
+    document.querySelectorAll('.tag').forEach(function(t) { t.classList.remove('on'); });
+    tag.classList.add('on');
+    selectedTheme = tag.dataset.v;
+  });
+});
+
+function updatePreview() {
+  var canvas = document.getElementById('preview');
+  var ctx = canvas.getContext('2d');
+  var W = 200, H = 200;
+  ctx.clearRect(0,0,W,H);
+
+  var skinTone = document.getElementById('skin_tone').value;
+  var outfitColor = document.getElementById('outfit_color').value;
+  var hairColor = document.getElementById('hair_color').value;
+  var hairStyle = document.getElementById('hair_style').value;
+  var glowColor = document.getElementById('glow_color').value;
+  var accessories = document.getElementById('accessories').value;
+
+  var cx = W/2, cy = H/2 + 20;
+
+  var grd = ctx.createRadialGradient(cx, cy-40, 5, cx, cy-40, 60);
+  grd.addColorStop(0, glowColor + '44');
+  grd.addColorStop(1, 'transparent');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0,0,W,H);
+
+  if(accessories === 'cape' || accessories === 'cape_hat') {
+    ctx.fillStyle = '#f7e96b';
+    ctx.beginPath();
+    ctx.moveTo(cx-5, cy-45);
+    ctx.quadraticCurveTo(cx-35, cy-20, cx-30, cy+40);
+    ctx.quadraticCurveTo(cx, cy+55, cx+30, cy+40);
+    ctx.quadraticCurveTo(cx+35, cy-20, cx+5, cy-45);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.beginPath(); ctx.ellipse(cx,cy+2,18,5,0,0,Math.PI*2);
+  ctx.fillStyle='rgba(0,0,0,0.2)'; ctx.fill();
+
+  ctx.strokeStyle='#ccc'; ctx.lineWidth=4; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(cx,cy-20); ctx.lineTo(cx-12,cy+10); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx,cy-20); ctx.lineTo(cx+12,cy+10); ctx.stroke();
+
+  ctx.strokeStyle=outfitColor; ctx.lineWidth=5;
+  ctx.beginPath(); ctx.moveTo(cx,cy-55); ctx.lineTo(cx,cy-20); ctx.stroke();
+
+  ctx.beginPath(); ctx.moveTo(cx,cy-42); ctx.lineTo(cx-22,cy-28); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx,cy-42); ctx.lineTo(cx+22,cy-28); ctx.stroke();
+
+  ctx.beginPath(); ctx.arc(cx,cy-68,18,0,Math.PI*2);
+  ctx.fillStyle=skinTone; ctx.fill();
+  ctx.strokeStyle='rgba(200,180,140,0.3)'; ctx.lineWidth=1.5; ctx.stroke();
+
+  ctx.fillStyle='#333';
+  ctx.beginPath(); ctx.arc(cx-6,cy-70,2.5,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx+6,cy-70,2.5,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#fff';
+  ctx.beginPath(); ctx.arc(cx-5,cy-71,1,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx+7,cy-71,1,0,Math.PI*2); ctx.fill();
+
+  ctx.strokeStyle='#444'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(cx,cy-64,6,0.1,Math.PI-0.1); ctx.stroke();
+
+  ctx.fillStyle=hairColor; ctx.strokeStyle=hairColor; ctx.lineWidth=2.5;
+  if(hairStyle==='long'){
+    ctx.beginPath(); ctx.arc(cx,cy-77,18,Math.PI,0); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx-18,cy-68); ctx.quadraticCurveTo(cx-22,cy-48,cx-14,cy-35); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx+18,cy-68); ctx.quadraticCurveTo(cx+22,cy-48,cx+14,cy-35); ctx.stroke();
+  } else if(hairStyle==='curly'){
+    for(var i=0;i<5;i++){ ctx.beginPath(); ctx.arc(cx-10+i*5,cy-85,4.5,0,Math.PI*2); ctx.fill(); }
+  } else if(hairStyle==='ponytail'){
+    ctx.beginPath(); ctx.arc(cx,cy-77,18,Math.PI,0); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx+14,cy-73); ctx.quadraticCurveTo(cx+26,cy-63,cx+18,cy-50); ctx.lineWidth=4; ctx.stroke();
+  } else if(hairStyle==='afro'){
+    ctx.beginPath(); ctx.arc(cx,cy-72,24,0,Math.PI*2); ctx.fill();
+  } else if(hairStyle==='bun'){
+    ctx.beginPath(); ctx.arc(cx,cy-77,18,Math.PI,0); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx,cy-88,9,0,Math.PI*2); ctx.fill();
+  } else if(hairStyle==='short'){
+    ctx.beginPath(); ctx.arc(cx,cy-77,18,Math.PI+0.25,0-0.25); ctx.fill();
+  }
+
+  if(accessories === 'hat' || accessories === 'cape_hat'){
+    ctx.fillStyle='#e74c3c';
+    ctx.fillRect(cx-20,cy-88,40,10);
+    ctx.beginPath(); ctx.moveTo(cx-16,cy-88); ctx.lineTo(cx-5,cy-100); ctx.lineTo(cx+16,cy-88); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.fillRect(cx-20,cy-88,40,4);
+  }
+
+  if(accessories === 'crown'){
+    ctx.fillStyle='#f7e96b';
+    ctx.beginPath();
+    ctx.moveTo(cx-18,cy-84);
+    ctx.lineTo(cx-18,cy-96);
+    ctx.lineTo(cx-9,cy-90);
+    ctx.lineTo(cx,cy-98);
+    ctx.lineTo(cx+9,cy-90);
+    ctx.lineTo(cx+18,cy-96);
+    ctx.lineTo(cx+18,cy-84);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  if(accessories === 'bow'){
+    ctx.fillStyle='#ff6eb4';
+    ctx.beginPath(); ctx.ellipse(cx-8,cy-88,8,5,0.5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx+8,cy-88,8,5,-0.5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx,cy-88,4,0,Math.PI*2); ctx.fill();
+  }
+
+  if(accessories === 'glasses'){
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(cx-7,cy-70,5,0,Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx+7,cy-70,5,0,Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx-2,cy-70); ctx.lineTo(cx+2,cy-70); ctx.stroke();
+  }
+}
+
+async function submitCharacter() {
+  var name = document.getElementById('child_name').value.trim();
+  var email = document.getElementById('parent_email').value.trim();
+  var age = document.getElementById('child_age').value;
+
+  if(!name){ alert("Please enter your child's name"); return; }
+  if(!email || !email.includes('@')){ alert('Please enter a valid email address'); return; }
+
+  var btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  var character = {
+    parent_email: email,
+    child_name: name,
+    child_age: parseInt(age),
+    build: document.getElementById('build').value,
+    hair_style: document.getElementById('hair_style').value,
+    hair_color: document.getElementById('hair_color').value,
+    skin_tone: document.getElementById('skin_tone').value,
+    outfit_color: document.getElementById('outfit_color').value,
+    glow_color: document.getElementById('glow_color').value,
+    accessories: document.getElementById('accessories').value,
+    sidekick: document.getElementById('sidekick').value,
+    theme: selectedTheme,
+    subscription_status: 'waitlist'
+  };
+
+  try {
+    var response = await fetch('/character', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(character)
+    });
+    var result = await response.json();
+    if(result.success){
+      document.getElementById('formSection').style.display = 'none';
+      document.getElementById('successSection').style.display = 'block';
+      document.getElementById('successMsg').textContent =
+        name + "'s character has been saved! Your first personalized bedtime adventure arrives soon. Get ready for the magic! 🌟";
+    } else {
+      alert('Something went wrong. Please try again.');
+      btn.disabled = false;
+      btn.textContent = '✦ Save My Child\'s Character';
+    }
+  } catch(e) {
+    alert('Connection error. Please try again.');
+    btn.disabled = false;
+    btn.textContent = '✦ Save My Child\'s Character';
+  }
+}
+
+updatePreview();
+</script>
+</body>
+</html>
