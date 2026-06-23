@@ -9,28 +9,3 @@ export interface HealthStatus {
   status: string;
 }
 
-export interface ExecutionInput {
-  /** The Node.js code to execute */
-  code: string;
-}
-
-export interface ExecutionResult {
-  id: number;
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-  durationMs: number;
-  executedAt: string;
-  code?: string;
-}
-
-export interface HistoryEntry {
-  id: number;
-  code: string;
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-  durationMs: number;
-  executedAt: string;
-}
-

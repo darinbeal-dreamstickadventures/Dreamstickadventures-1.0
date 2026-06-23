@@ -13,7 +13,7 @@ const supabase = createClient(
 );
 
 // Save character to Supabase
-app.post('/character', async (req, res) => {
+app.post('/character', async (req, res): Promise<void> => {
   try {
     const character = req.body;
     const { data, error } = await supabase
@@ -22,7 +22,8 @@ app.post('/character', async (req, res) => {
 
     if (error) {
       console.error('Supabase error:', error);
-      return res.json({ success: false, error: error.message });
+      res.json({ success: false, error: error.message });
+      return;
     }
 
     res.json({ success: true, data });

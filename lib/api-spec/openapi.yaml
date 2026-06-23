@@ -1,6 +1,5 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
   description: API specification
@@ -10,8 +9,6 @@ servers:
 tags:
   - name: health
     description: Health operations
-  - name: repl
-    description: REPL execution operations
 paths:
   /healthz:
     get:
@@ -27,50 +24,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
-  /repl/execute:
-    post:
-      operationId: executeCode
-      tags: [repl]
-      summary: Execute Node.js code
-      description: Executes a snippet of Node.js code and returns the output
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ExecutionInput"
-      responses:
-        "200":
-          description: Execution result
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ExecutionResult"
-
-  /repl/history:
-    get:
-      operationId: getHistory
-      tags: [repl]
-      summary: Get execution history
-      description: Returns recent execution history entries
-      responses:
-        "200":
-          description: List of history entries
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/HistoryEntry"
-    delete:
-      operationId: clearHistory
-      tags: [repl]
-      summary: Clear execution history
-      description: Deletes all execution history entries
-      responses:
-        "204":
-          description: History cleared
-
 components:
   schemas:
     HealthStatus:
@@ -80,65 +33,3 @@ components:
           type: string
       required:
         - status
-
-    ExecutionInput:
-      type: object
-      required:
-        - code
-      properties:
-        code:
-          type: string
-          description: The Node.js code to execute
-
-    ExecutionResult:
-      type: object
-      required:
-        - stdout
-        - stderr
-        - exitCode
-        - durationMs
-        - id
-        - executedAt
-      properties:
-        id:
-          type: integer
-        stdout:
-          type: string
-        stderr:
-          type: string
-        exitCode:
-          type: integer
-        durationMs:
-          type: integer
-        executedAt:
-          type: string
-          format: date-time
-        code:
-          type: string
-
-    HistoryEntry:
-      type: object
-      required:
-        - id
-        - code
-        - stdout
-        - stderr
-        - exitCode
-        - durationMs
-        - executedAt
-      properties:
-        id:
-          type: integer
-        code:
-          type: string
-        stdout:
-          type: string
-        stderr:
-          type: string
-        exitCode:
-          type: integer
-        durationMs:
-          type: integer
-        executedAt:
-          type: string
-          format: date-time

@@ -17,38 +17,3 @@ export const HealthCheckResponse = zod.object({
 })
 
 
-/**
- * Executes a snippet of Node.js code and returns the output
- * @summary Execute Node.js code
- */
-export const ExecuteCodeBody = zod.object({
-  "code": zod.string().describe('The Node.js code to execute')
-})
-
-export const ExecuteCodeResponse = zod.object({
-  "id": zod.number(),
-  "stdout": zod.string(),
-  "stderr": zod.string(),
-  "exitCode": zod.number(),
-  "durationMs": zod.number(),
-  "executedAt": zod.coerce.date(),
-  "code": zod.string().optional()
-})
-
-
-/**
- * Returns recent execution history entries
- * @summary Get execution history
- */
-export const GetHistoryResponseItem = zod.object({
-  "id": zod.number(),
-  "code": zod.string(),
-  "stdout": zod.string(),
-  "stderr": zod.string(),
-  "exitCode": zod.number(),
-  "durationMs": zod.number(),
-  "executedAt": zod.coerce.date()
-})
-export const GetHistoryResponse = zod.array(GetHistoryResponseItem)
-
-

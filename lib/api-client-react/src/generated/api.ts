@@ -6,28 +6,21 @@
  * OpenAPI spec version: 0.1.0
  */
 import {
-  useMutation,
   useQuery
 } from '@tanstack/react-query';
 import type {
-  MutationFunction,
   QueryFunction,
   QueryKey,
-  UseMutationOptions,
-  UseMutationResult,
   UseQueryOptions,
   UseQueryResult
 } from '@tanstack/react-query';
 
 import type {
-  ExecutionInput,
-  ExecutionResult,
-  HealthStatus,
-  HistoryEntry
+  HealthStatus
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
-import type { ErrorType , BodyType } from '../custom-fetch';
+import type { ErrorType } from '../custom-fetch';
 
 type AwaitedInput<T> = PromiseLike<T> | T;
 
@@ -115,225 +108,4 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
 
 
-
-export const getExecuteCodeUrl = () => {
-
-
-
-
-  return `/api/repl/execute`
-}
-
-/**
- * Executes a snippet of Node.js code and returns the output
- * @summary Execute Node.js code
- */
-export const executeCode = async (executionInput: ExecutionInput, options?: RequestInit): Promise<ExecutionResult> => {
-
-  return customFetch<ExecutionResult>(getExecuteCodeUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(
-      executionInput,)
-  }
-);}
-
-
-
-
-export const getExecuteCodeMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof executeCode>>, TError,{data: BodyType<ExecutionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof executeCode>>, TError,{data: BodyType<ExecutionInput>}, TContext> => {
-
-const mutationKey = ['executeCode'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof executeCode>>, {data: BodyType<ExecutionInput>}> = (props) => {
-          const {data} = props ?? {};
-
-          return  executeCode(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type ExecuteCodeMutationResult = NonNullable<Awaited<ReturnType<typeof executeCode>>>
-    export type ExecuteCodeMutationBody = BodyType<ExecutionInput>
-    export type ExecuteCodeMutationError = ErrorType<unknown>
-
-    /**
- * @summary Execute Node.js code
- */
-export const useExecuteCode = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof executeCode>>, TError,{data: BodyType<ExecutionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof executeCode>>,
-        TError,
-        {data: BodyType<ExecutionInput>},
-        TContext
-      > => {
-      return useMutation(getExecuteCodeMutationOptions(options));
-    }
-
-export const getGetHistoryUrl = () => {
-
-
-
-
-  return `/api/repl/history`
-}
-
-/**
- * Returns recent execution history entries
- * @summary Get execution history
- */
-export const getHistory = async ( options?: RequestInit): Promise<HistoryEntry[]> => {
-
-  return customFetch<HistoryEntry[]>(getGetHistoryUrl(),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getGetHistoryQueryKey = () => {
-    return [
-    `/api/repl/history`
-    ] as const;
-    }
-
-
-export const getGetHistoryQueryOptions = <TData = Awaited<ReturnType<typeof getHistory>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getGetHistoryQueryKey();
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHistory>>> = ({ signal }) => getHistory({ signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHistory>>, TError, TData> & { queryKey: QueryKey }
-}
-
-export type GetHistoryQueryResult = NonNullable<Awaited<ReturnType<typeof getHistory>>>
-export type GetHistoryQueryError = ErrorType<unknown>
-
-
-/**
- * @summary Get execution history
- */
-
-export function useGetHistory<TData = Awaited<ReturnType<typeof getHistory>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-
- ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-
-  const queryOptions = getGetHistoryQueryOptions(options)
-
-  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-
-
-
-
-
-
-export const getClearHistoryUrl = () => {
-
-
-
-
-  return `/api/repl/history`
-}
-
-/**
- * Deletes all execution history entries
- * @summary Clear execution history
- */
-export const clearHistory = async ( options?: RequestInit): Promise<void> => {
-
-  return customFetch<void>(getClearHistoryUrl(),
-  {
-    ...options,
-    method: 'DELETE'
-
-
-  }
-);}
-
-
-
-
-export const getClearHistoryMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearHistory>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof clearHistory>>, TError,void, TContext> => {
-
-const mutationKey = ['clearHistory'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearHistory>>, void> = () => {
-
-
-          return  clearHistory(requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type ClearHistoryMutationResult = NonNullable<Awaited<ReturnType<typeof clearHistory>>>
-
-    export type ClearHistoryMutationError = ErrorType<unknown>
-
-    /**
- * @summary Clear execution history
- */
-export const useClearHistory = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearHistory>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof clearHistory>>,
-        TError,
-        void,
-        TContext
-      > => {
-      return useMutation(getClearHistoryMutationOptions(options));
-    }
 
