@@ -19,7 +19,7 @@ const supabase = createClient(
 );
 
 // Save character to Supabase
-app.post('/character', async (req, res): Promise<void> => {
+app.post('/api/character', async (req, res): Promise<void> => {
   try {
     const character = req.body;
     const { data, error } = await supabase
@@ -40,7 +40,7 @@ app.post('/character', async (req, res): Promise<void> => {
 });
 
 // Health check
-app.get('/health', (req, res) => {
+app.get('/api/health', (req, res) => {
   res.json({ status: 'DreamStick Adventures backend is running' });
 });
 
