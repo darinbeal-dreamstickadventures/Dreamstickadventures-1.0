@@ -1,6 +1,6 @@
-# [Project name]
+# dreamstick-backend
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A web-based Node.js REPL that lets developers write and execute JavaScript code in the browser with persistent execution history.
 
 ## Run & Operate
 
