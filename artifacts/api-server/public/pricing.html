@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DreamStick Adventures — Choose Your Plan</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0e0520;
+  color: #f4f0ff;
+  font-family: 'Nunito', sans-serif;
+  min-height: 100vh;
+  padding: 48px 20px;
+}
+.wrap { max-width: 860px; margin: 0 auto; }
+.logo {
+  font-family: 'Fredoka One', cursive;
+  font-size: 2.2rem;
+  color: #f7e96b;
+  text-align: center;
+  margin-bottom: 6px;
+}
+.logo span { color: #9b6fff; }
+.tagline {
+  text-align: center;
+  color: #8878bb;
+  font-size: 0.95rem;
+  margin-bottom: 12px;
+}
+h2 {
+  font-family: 'Fredoka One', cursive;
+  font-size: 1.8rem;
+  color: #f4f0ff;
+  text-align: center;
+  margin-bottom: 40px;
+}
+.plans {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  margin-bottom: 40px;
+}
+.plan {
+  background: #1c0d3a;
+  border: 1px solid rgba(155,111,255,0.22);
+  border-radius: 24px;
+  padding: 32px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  transition: transform 0.2s, border-color 0.2s;
+  position: relative;
+}
+.plan:hover { transform: translateY(-4px); border-color: rgba(155,111,255,0.5); }
+.plan.featured {
+  border-color: #9b6fff;
+  background: #220e4a;
+}
+.badge {
+  position: absolute;
+  top: -14px;
+  background: #9b6fff;
+  color: white;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 4px 14px;
+  border-radius: 20px;
+}
+.plan-icon { font-size: 2.4rem; margin-bottom: 12px; }
+.plan-name {
+  font-family: 'Fredoka One', cursive;
+  font-size: 1.5rem;
+  color: #f7e96b;
+  margin-bottom: 6px;
+}
+.plan-price {
+  font-size: 2.4rem;
+  font-weight: 800;
+  color: #f4f0ff;
+  margin-bottom: 2px;
+}
+.plan-price span { font-size: 1rem; font-weight: 600; color: #8878bb; }
+.plan-desc {
+  color: #8878bb;
+  font-size: 0.88rem;
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+.features {
+  list-style: none;
+  width: 100%;
+  margin-bottom: 28px;
+  text-align: left;
+}
+.features li {
+  padding: 6px 0;
+  font-size: 0.88rem;
+  color: #c4b8e8;
+  border-bottom: 1px solid rgba(155,111,255,0.1);
+}
+.features li:last-child { border-bottom: none; }
+.features li::before { content: '✦ '; color: #9b6fff; }
+.btn {
+  width: 100%;
+  background: linear-gradient(135deg, #9b6fff, #b06fff);
+  border: none;
+  border-radius: 14px;
+  color: white;
+  cursor: pointer;
+  font-family: 'Fredoka One', cursive;
+  font-size: 1.1rem;
+  padding: 14px;
+  transition: transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 4px 20px rgba(155,111,255,0.35);
+  margin-top: auto;
+}
+.btn:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(155,111,255,0.5); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.footer-note {
+  text-align: center;
+  color: #8878bb;
+  font-size: 0.82rem;
+}
+.footer-note a { color: #9b6fff; text-decoration: none; }
+@media(max-width: 700px) {
+  .plans { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">Dream<span>Stick</span> Adventures ✦</div>
+  <div class="tagline">Where every child is the hero of their own story</div>
+  <h2>Choose Your Adventure Plan</h2>
+
+  <div class="plans">
+
+    <div class="plan">
+      <div class="plan-icon">🌙</div>
+      <div class="plan-name">Dreamer</div>
+      <div class="plan-price">$7<span>/mo</span></div>
+      <div class="plan-desc">The perfect start for one little dreamer.</div>
+      <ul class="features">
+        <li>1 personalised character</li>
+        <li>4 bedtime stories/month</li>
+        <li>Space, jungle & ocean themes</li>
+        <li>Email story delivery</li>
+      </ul>
+      <button class="btn" onclick="subscribe('dreamer', this)">Subscribe</button>
+    </div>
+
+    <div class="plan featured">
+      <div class="badge">Most Popular</div>
+      <div class="plan-icon">⭐</div>
+      <div class="plan-name">Nightly</div>
+      <div class="plan-price">$12<span>/mo</span></div>
+      <div class="plan-desc">A new adventure every night of the week.</div>
+      <ul class="features">
+        <li>1 personalised character</li>
+        <li>Unlimited bedtime stories</li>
+        <li>All adventure themes</li>
+        <li>Email + app delivery</li>
+        <li>Choose story length</li>
+      </ul>
+      <button class="btn" onclick="subscribe('nightly', this)">Subscribe</button>
+    </div>
+
+    <div class="plan">
+      <div class="plan-icon">👨‍👩‍👧‍👦</div>
+      <div class="plan-name">Family</div>
+      <div class="plan-price">$19<span>/mo</span></div>
+      <div class="plan-desc">Adventures for every child in the family.</div>
+      <ul class="features">
+        <li>Up to 4 characters</li>
+        <li>Unlimited bedtime stories</li>
+        <li>All adventure themes</li>
+        <li>Email + app delivery</li>
+        <li>Multi-child story crossovers</li>
+      </ul>
+      <button class="btn" onclick="subscribe('family', this)">Subscribe</button>
+    </div>
+
+  </div>
+
+  <div class="footer-note">
+    Cancel anytime. Questions? <a href="mailto:hello@dreamstickadventures.com">hello@dreamstickadventures.com</a>
+  </div>
+</div>
+
+<script>
+async function subscribe(plan, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Loading...';
+  try {
+    const res = await fetch('/api/create-checkout-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan })
+    });
+    const data = await res.json();
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      alert('Something went wrong. Please try again.');
+      btn.disabled = false;
+      btn.textContent = 'Subscribe';
+    }
+  } catch (e) {
+    alert('Connection error. Please try again.');
+    btn.disabled = false;
+    btn.textContent = 'Subscribe';
+  }
+}
+</script>
+</body>
+</html>
