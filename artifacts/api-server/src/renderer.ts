@@ -18,6 +18,7 @@ const FRAMES_PER_SCENE = 20 * FPS; // 600
 const FADE_FRAMES = 15;
 
 const VIDEOS_DIR = '/tmp/dreamstick-videos';
+const PUBLIC_VIDEOS_DIR = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'videos');
 const BACKGROUNDS_DIR = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'backgrounds');
 
 // Character geometry (scaled for 540x960)
@@ -563,5 +564,14 @@ export async function renderVideo(char: RenderCharacter, story: RenderStory): Pr
   }
 
   await done;
+
+  // Copy to the frontend public/videos dir so it's served statically
+  try {
+    await fs.mkdir(PUBLIC_VIDEOS_DIR, { recursive: true });
+    await fs.copyFile(outPath, path.join(PUBLIC_VIDEOS_DIR, path.basename(outPath)));
+  } catch {
+    // Non-fatal — video is still accessible via /api/videos/
+  }
+
   return outPath;
 }

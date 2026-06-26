@@ -377,6 +377,50 @@ app.get('/api/render-status/:jobId', (req, res): void => {
   });
 });
 
+// Watch page — self-contained HTML video player
+app.get('/api/watch/:filename', async (req, res): Promise<void> => {
+  try {
+    const filename = path.basename(req.params.filename);
+    const filePath = path.join(VIDEOS_DIR, filename);
+    await fs.access(filePath);
+    const videoUrl = `/api/videos/${filename}`;
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DreamStick Adventures — Watch</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0015;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;font-family:system-ui,sans-serif}
+h1{color:#FFD700;font-size:1.6rem;text-align:center;margin-bottom:6px;text-shadow:0 0 20px #FFD700}
+p{color:#a78bfa;text-align:center;font-size:0.85rem;margin-bottom:20px}
+.card{background:#12002a;border:1px solid #4c1d95;border-radius:20px;overflow:hidden;max-width:420px;width:100%;box-shadow:0 0 60px rgba(124,58,237,0.35)}
+video{display:block;width:100%;background:#000}
+.actions{padding:16px;display:flex;gap:10px}
+a.dl{flex:1;display:block;padding:12px;border-radius:12px;background:#FFD700;color:#000;font-weight:700;text-align:center;text-decoration:none;font-size:1rem;transition:background .15s}
+a.dl:hover{background:#fde047}
+.meta{color:#6d28d9;font-size:0.75rem;text-align:center;padding-bottom:12px}
+</style>
+</head>
+<body>
+<h1>✨ DreamStick Adventures</h1>
+<p>Your personalised bedtime story video</p>
+<div class="card">
+  <video src="${videoUrl}" controls playsinline preload="metadata"></video>
+  <div class="actions">
+    <a class="dl" href="${videoUrl}" download="${filename}">⬇️ Download MP4</a>
+  </div>
+  <div class="meta">1080 × 1920 · 30 fps · H.264 · 2 minutes</div>
+</div>
+</body>
+</html>`);
+  } catch {
+    res.status(404).send('<h1>Video not found</h1>');
+  }
+});
+
 // Serve completed video files
 app.get('/api/videos/:filename', async (req, res): Promise<void> => {
   try {
