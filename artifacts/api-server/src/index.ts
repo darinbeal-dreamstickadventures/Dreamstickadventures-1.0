@@ -4,7 +4,19 @@ import pg from 'pg';
 import Stripe from 'stripe';
 import Anthropic from '@anthropic-ai/sdk';
 import path from 'path';
+import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
+import { randomUUID } from 'crypto';
+import { renderVideo } from './renderer.js';
+
+// Prevent EPIPE / unhandled async rejection from crashing the server
+process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EPIPE' || err.code === 'ECONNRESET') return;
+  console.error('[uncaughtException]', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -248,6 +260,133 @@ app.get('/api/test-story', async (_req, res): Promise<void> => {
   } catch (e: any) {
     console.error('Test story error:', e.message);
     res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ── Video renderer (async job queue) ─────────────────────────────────────────
+
+const VIDEOS_DIR = '/tmp/dreamstick-videos';
+
+type JobStatus = 'pending' | 'generating' | 'rendering' | 'done' | 'error';
+
+interface RenderJob {
+  id: string;
+  status: JobStatus;
+  created: number;
+  url?: string;
+  story?: Story;
+  error?: string;
+}
+
+const jobs = new Map<string, RenderJob>();
+
+// Clean up jobs older than 2 hours
+setInterval(() => {
+  const cutoff = Date.now() - 2 * 60 * 60 * 1000;
+  for (const [id, job] of jobs) {
+    if (job.created < cutoff) jobs.delete(id);
+  }
+}, 15 * 60 * 1000);
+
+async function runRenderJob(job: RenderJob, char: Character): Promise<void> {
+  try {
+    job.status = 'generating';
+    console.log(`[job:${job.id}] Generating story for ${char.child_name}...`);
+    const story = await generateStory(char);
+    job.story = story;
+
+    job.status = 'rendering';
+    console.log(`[job:${job.id}] Rendering ${story.scenes.length} scenes × 30fps...`);
+    const filePath = await renderVideo(char, story);
+    const filename = path.basename(filePath);
+
+    job.url = `/api/videos/${filename}`;
+    job.status = 'done';
+    console.log(`[job:${job.id}] Done → ${job.url}`);
+  } catch (e: any) {
+    job.status = 'error';
+    job.error = e.message;
+    console.error(`[job:${job.id}] Failed:`, e.message);
+  }
+}
+
+// Start a render job for a DB character
+app.post('/api/render-video', async (req, res): Promise<void> => {
+  try {
+    const { character_id } = req.body as { character_id: number };
+    if (!character_id) {
+      res.status(400).json({ error: 'character_id is required' });
+      return;
+    }
+
+    const result = await pool.query('SELECT * FROM characters WHERE id = $1', [character_id]);
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: `Character ${character_id} not found` });
+      return;
+    }
+    const char = result.rows[0] as Character;
+
+    const job: RenderJob = { id: randomUUID(), status: 'pending', created: Date.now() };
+    jobs.set(job.id, job);
+
+    // Fire-and-forget — render continues even if client disconnects
+    runRenderJob(job, char).catch(() => {});
+
+    res.json({ success: true, job_id: job.id, status: 'pending' });
+  } catch (e: any) {
+    console.error('render-video error:', e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Start a test render job (Kevin, no DB)
+app.post('/api/test-video', async (_req, res): Promise<void> => {
+  const testChar: Character = {
+    child_name: 'Kevin',
+    child_age: 6,
+    build: 'average',
+    hair_style: 'short',
+    hair_color: '#3a1e08',
+    outfit_color: '#9b59b6',
+    glow_color: '#f7e96b',
+    accessories: 'cape',
+    sidekick: 'dragon',
+    theme: 'space',
+  };
+
+  const job: RenderJob = { id: randomUUID(), status: 'pending', created: Date.now() };
+  jobs.set(job.id, job);
+  runRenderJob(job, testChar).catch(() => {});
+
+  res.json({ success: true, job_id: job.id, status: 'pending' });
+});
+
+// Poll job status
+app.get('/api/render-status/:jobId', (req, res): void => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) {
+    res.status(404).json({ error: 'Job not found' });
+    return;
+  }
+  res.json({
+    job_id: job.id,
+    status: job.status,
+    url: job.url,
+    story: job.story,
+    error: job.error,
+  });
+});
+
+// Serve completed video files
+app.get('/api/videos/:filename', async (req, res): Promise<void> => {
+  try {
+    const filename = path.basename(req.params.filename);
+    const filePath = path.join(VIDEOS_DIR, filename);
+    await fs.access(filePath);
+    res.setHeader('Content-Type', 'video/mp4');
+    res.sendFile(filePath);
+  } catch {
+    res.status(404).json({ error: 'Video not found' });
   }
 });
 

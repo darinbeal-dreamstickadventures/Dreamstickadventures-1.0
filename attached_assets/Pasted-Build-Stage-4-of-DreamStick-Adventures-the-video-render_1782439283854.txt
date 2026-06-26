@@ -1,0 +1,39 @@
+Build Stage 4 of DreamStick Adventures — the video renderer. Here's exactly what I need:
+The video renderer should take a character object and a generated story and produce a real MP4 video file. Here's how it should work:
+
+Each story has 6 scenes, each 20 seconds long = 2 minute total video
+For each scene:
+
+
+Load a random background image from /backgrounds/[theme]/ folder — pick randomly from bg1.png, bg2.png, or bg3.png
+Draw the background image filling the full 1080x1920 canvas (9:16 vertical format for mobile)
+Draw the glowing stick figure character on top of the background in the lower center of the frame
+The character should have a warm golden glow outline effect
+Draw the child's name above the character in gold text
+Draw the scene narration text at the bottom of the screen in a readable white box
+Animate the character with a gentle bounce and arm movement appropriate to the scene mood
+
+
+The character should have these features:
+
+
+Warm golden glow surrounding the entire body
+Slightly rounded body proportions not razor thin lines
+Round head with eyes, eyebrows, and smile
+Hair style matching the character data
+Outfit color matching the character data
+Cape if accessories include cape
+Hat if accessories include hat
+Sidekick emoji floating beside them
+
+
+Use canvas and ffmpeg to render 30 frames per second
+
+For each scene generate 600 frames (20 seconds x 30fps)
+
+Save frames as PNG files then stitch with ffmpeg into final MP4
+Add a smooth fade to black transition between each scene
+Create a POST route /render-video that accepts a character_id, looks up the character in the database, calls /generate-story to get the story, renders the full video, saves it to /videos/[child_name]-[timestamp].mp4 and returns the video file path
+Create a GET /test-video route that renders a test video for Kevin the space explorer with golden glow, short dark brown hair, purple outfit, dragon sidekick and saves it so I can verify it looks correct
+
+Please install canvas and any other required packages. Use proper error handling throughout.
