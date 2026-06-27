@@ -1,0 +1,58 @@
+Yes — let's take it to the next level. The slideshow feel comes from using static images that just move around the screen. To make it feel like a real animation we need to add multiple layers of movement happening simultaneously.
+
+Tell Replit exactly this:
+"Please significantly upgrade the video animation system to make it feel like a real cartoon video instead of a slideshow. Here are the specific upgrades I need:
+1 — Character Walking Animation
+
+Instead of one static pose image moving across the screen — cycle between 3 frames to simulate walking:
+
+Frame A — walk.png — normal position
+Frame B — walk.png — shifted up 15px — mid stride
+Frame C — walk.png — normal position — completing stride
+
+Cycle through A B C A B C at 8 cycles per second to create a walking illusion. This makes the character look like they are actually walking not sliding.
+
+2 — Scene Specific Character Journeys
+
+Each scene the character should go on a mini journey across the screen:
+Excited scene — character enters from left edge, walks across full width to right edge, exits right. New character enters from left again. Loops this walk across the full 20 seconds.
+Curious scene — character walks slowly to center, stops, looks left and right by slightly shifting position, then walks toward background — scale character down slightly over time to simulate walking away into the distance, then scale back up as they return.
+Brave scene — character stands center, dramatic zoom in slowly over 20 seconds — scale character from 900px to 1100px height gradually. Feels cinematic and heroic.
+Triumphant scene — character bounces up and down energetically — 120px up and back down — 3 times across the scene. Each bounce the character moves slightly right. Arms raise position at top of each bounce.
+Peaceful scene — character floats very gently in a slow figure 8 pattern across the center of the screen. Very slow and dreamy. Glow pulses softly.
+Sleepy scene — character starts upright in center, slowly tilts and drifts downward over the full 20 seconds. By the 15 second mark switch to asleep.png pose. Character comes to rest at bottom center. Glow slowly dims to almost nothing.
+3 — Background Parallax Movement
+
+The background image should slowly drift in the opposite direction of the character — about 30px of total movement over 20 seconds. This creates genuine depth and makes the world feel alive.
+4 — Golden Particle System
+
+Add 15 golden glowing particles that float upward continuously around the character:
+
+Each particle is a small golden circle 3-6px radius
+Starts at a random position near the character
+Floats upward and slightly left or right randomly
+Fades out after 2-3 seconds
+New particle spawns to replace it
+Particles have varying speeds and sizes for organic feel
+Particles glow with rgba(247,233,107,0.6) color
+
+5 — Scene Transition Upgrade
+
+Instead of simple fade to black between scenes:
+
+Fade to black over 20 frames
+During black show the next scene title text briefly
+Example — Scene 2: The Discovery
+Fade in to new scene over 20 frames
+Feels more like a real cartoon episode
+
+6 — Text Animation
+
+Instead of static text at the bottom — have each word of the narration fade in one at a time over the first 8 seconds of each scene. This makes it feel like the story is being told in real time.
+7 — Name Animation At Scene Start
+
+At the start of each scene the child's name pulses with a golden glow — scales up slightly then back to normal over 2 seconds. Reminds the child that THIS IS ABOUT THEM every single scene.
+8 — Sidekick Floating Animation
+
+For now use a simple emoji rendered on canvas for the sidekick — dragon emoji for dragon sidekick etc. Place it to the right of the character and have it bob up and down independently from the character at a different speed. This creates the illusion of two separate living beings on screen together.
+Please test render a new video for Kevin age 7 boy space theme dragon sidekick and report the job ID so I can check the status.

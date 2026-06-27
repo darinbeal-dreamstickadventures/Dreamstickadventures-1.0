@@ -13,21 +13,22 @@ const H = 960;
 const OUT_W = 1080;
 const OUT_H = 1920;
 const FPS = 30;
-const FRAMES_PER_SCENE = 20 * FPS; // 600 frames = 20 s
-const FADE_FRAMES = 30;            // 1-second fade each side
+const FRAMES_PER_SCENE = 20 * FPS;  // 600 frames = 20 s
+const FADE_FRAMES      = 20;         // 0.67 s fade each side
+const TITLE_CARD_FRAMES = 20;        // 0.67 s scene-title card between scenes
 
-const VIDEOS_DIR = '/tmp/dreamstick-videos';
+const VIDEOS_DIR      = '/tmp/dreamstick-videos';
 const PUBLIC_VIDEOS_DIR = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'videos');
-const BACKGROUNDS_DIR = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'backgrounds');
-const CHARACTERS_DIR  = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'characters');
+const BACKGROUNDS_DIR   = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'backgrounds');
+const CHARACTERS_DIR    = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'characters');
 
-// Character layout (internal 540×960; everything × 2 in final 1080×1920)
-const CHAR_H  = 450;                         // → 900 px final
-const CHAR_W  = Math.round(CHAR_H * 0.558); // → ≈ 251 px internal
+// Character layout (internal 540×960; ×2 in final 1080×1920)
+const CHAR_H       = 450;                          // → 900 px final
+const CHAR_W       = Math.round(CHAR_H * 0.558);  // → ≈ 251 px
 const CHAR_BOTTOM  = 762;
-const CHAR_TOP_BASE = CHAR_BOTTOM - CHAR_H; // ≈ 312 — neutral top-Y of pose image
-const CHAR_BASE_CX  = W / 2;
-const CHAR_BASE_CY  = CHAR_TOP_BASE + CHAR_H / 2;
+const CHAR_TOP_BASE = CHAR_BOTTOM - CHAR_H;       // ≈ 312
+const CHAR_BASE_CX  = W / 2;                      // 270
+const CHAR_BASE_CY  = CHAR_TOP_BASE + CHAR_H / 2; // ≈ 537
 
 // Narration box
 const BOX_Y = 772;
@@ -35,8 +36,9 @@ const BOX_H = 170;
 const BOX_X = 18;
 const BOX_W = W - 36;
 
-const NAME_FONT = 'bold 36px Arial, sans-serif';
-const GOLD = '#f7e96b';
+const NAME_Y    = 52;
+const GOLD      = '#f7e96b';
+const GOLD_RGBA = 'rgba(247,233,107';
 
 const SIDEKICK_MAP: Record<string, string> = {
   dragon: '🐉', cat: '🐱', dog: '🐶', rabbit: '🐰',
@@ -72,7 +74,7 @@ export interface RenderStory {
   scenes: RenderScene[];
 }
 
-// ── Pose set ─────────────────────────────────────────────────────────────────
+// ── Pose set ──────────────────────────────────────────────────────────────────
 
 interface PoseSet {
   run: Image; curious: Image; heroic: Image;
@@ -80,7 +82,7 @@ interface PoseSet {
 }
 
 async function loadPoseSet(gender: 'boy' | 'girl'): Promise<PoseSet> {
-  const dir = path.join(CHARACTERS_DIR, gender);
+  const dir  = path.join(CHARACTERS_DIR, gender);
   const load = (n: string) => loadImage(path.join(dir, `${n}.png`));
   const [run, curious, heroic, triumph, peaceful, yawning, asleep] = await Promise.all([
     load('run'), load('curious'), load('heroic'), load('triumph'),
@@ -89,125 +91,165 @@ async function loadPoseSet(gender: 'boy' | 'girl'): Promise<PoseSet> {
   return { run, curious, heroic, triumph, peaceful, yawning, asleep };
 }
 
-function pickPose(mood: Mood, isLastScene: boolean, poses: PoseSet): Image {
-  if (isLastScene) return poses.asleep;
+function pickPose(mood: Mood, f: number, isLastScene: boolean, poses: PoseSet): Image {
+  if (isLastScene && f >= 450) return poses.asleep;       // sleepy → asleep at 15 s
+  if (isLastScene)              return poses.yawning;
   switch (mood) {
     case 'excited':    return poses.run;
     case 'curious':    return poses.curious;
     case 'brave':      return poses.heroic;
     case 'triumphant': return poses.triumph;
     case 'peaceful':   return poses.peaceful;
-    case 'sleepy':     return poses.yawning;
+    case 'sleepy':     return f >= 450 ? poses.asleep : poses.yawning;
   }
+}
+
+// ── Animation helpers ─────────────────────────────────────────────────────────
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * Math.max(0, Math.min(1, t));
+}
+function easeInOut(t: number): number {
+  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+}
+
+/** Simulates A → B → C walking cycle. Returns Y offset (negative = up = mid-stride). */
+function walkStepDY(f: number, stepsPerSec = 8): number {
+  const step = Math.floor((f * stepsPerSec * 3) / FPS) % 3;
+  return step === 1 ? -8 : 0; // Frame B lifts 8 px internal (16 px final)
 }
 
 // ── Per-mood animation state ──────────────────────────────────────────────────
 
 interface AnimState {
-  charDX:     number;  // horizontal offset from neutral centre (px)
-  charDY:     number;  // vertical offset (positive = down)
-  charScaleX: number;  // horizontal scale
-  charScaleY: number;  // vertical scale
-  charRotDeg: number;  // rotation in degrees
-  bgDX:       number;  // background parallax offset X
-  bgDY:       number;  // background parallax offset Y
+  charDX:     number;   // offset from CHAR_BASE_CX
+  charDY:     number;   // offset (positive = down)
+  charScaleX: number;
+  charScaleY: number;
+  charRotDeg: number;
+  bgDX:       number;   // parallax offset
+  bgDY:       number;
+  glowMult:   number;   // multiplier on glow alpha
 }
 
-function getMoodAnim(mood: Mood, f: number, totalF: number): AnimState {
-  const t = f / FPS;
-  const p = f / totalF; // 0 → 1
+function getMoodState(mood: Mood, f: number, totalF: number): AnimState {
+  const p = f / totalF;
 
   switch (mood) {
 
+    // ── EXCITED: walk left → right continuously, looping every 8 s ──
     case 'excited': {
-      // Walk left → right; bouncy up on each step (abs-sin so always upward)
-      const walkX = (p - 0.5) * 140;
-      const step  = -Math.abs(Math.sin(t * Math.PI * 3.2)) * 10;
+      const periodF = FPS * 8;
+      const phase   = (f % periodF) / periodF;
+      const travelW = W + CHAR_W;
+      const charCX  = phase * travelW - CHAR_W / 2;
+      const charDX  = charCX - CHAR_BASE_CX;
+      const stepDY  = walkStepDY(f, 10); // running pace
       return {
-        charDX: walkX, charDY: step,
+        charDX, charDY: stepDY,
         charScaleX: 1, charScaleY: 1, charRotDeg: 0,
-        bgDX: -walkX * 0.12, bgDY: -step * 0.08,
+        bgDX: -charDX * 0.10, bgDY: 0, glowMult: 1,
       };
     }
 
+    // ── CURIOUS: walk to centre → look around → walk away → return ──
     case 'curious': {
-      // Slow head-turn sway; very subtle zoom-in as if approaching something
-      const sway  = Math.sin(t * 0.55) * 16;
-      const lean  = -p * 8;                          // drifts slightly up/forward
-      const scale = 1 + p * 0.04;                    // imperceptibly zooms in
-      const tilt  = Math.sin(t * 0.45) * 2.5;
+      let charDX = 0, charDY = 0, charScale = 1, charRotDeg = 0;
+
+      if (f < 150) {                          // 0-5 s: approach from left
+        const t = f / 150;
+        charDX    = lerp(-80, 0, easeInOut(t));
+        charDY    = walkStepDY(f, 5);
+      } else if (f < 240) {                   // 5-8 s: look around
+        const t   = (f - 150) / 90;
+        charDX    = Math.sin(t * Math.PI * 3) * 14;
+        charRotDeg = Math.sin(t * Math.PI * 2) * 5;
+        charScale = 1 + Math.sin(t * Math.PI) * 0.03;
+      } else if (f < 420) {                   // 8-14 s: walk away (shrink)
+        const t   = (f - 240) / 180;
+        charDX    = Math.sin(t * Math.PI * 2) * 6;
+        charDY    = walkStepDY(f, 5);
+        charScale = lerp(1, 0.68, easeInOut(t));
+      } else {                                // 14-20 s: return (grow back)
+        const t   = (f - 420) / 180;
+        charDX    = Math.sin(t * Math.PI * 1.5) * 6;
+        charDY    = walkStepDY(f, 5);
+        charScale = lerp(0.68, 1, easeInOut(t));
+      }
+
       return {
-        charDX: sway, charDY: lean,
-        charScaleX: scale, charScaleY: scale, charRotDeg: tilt,
-        bgDX: -sway * 0.14, bgDY: -lean * 0.10,
+        charDX, charDY,
+        charScaleX: charScale, charScaleY: charScale, charRotDeg,
+        bgDX: -charDX * 0.13, bgDY: 0, glowMult: 1,
       };
     }
 
+    // ── BRAVE: cinematic zoom from 900 → 1100 px final height ──
     case 'brave': {
-      // Chest-puff: subtle scale pulse. Stands dead-centre.
-      const puff  = Math.sin(t * 1.5) * 0.025;
-      const breathY = Math.sin(t * 0.9) * 3;
+      const scale  = 1 + p * 0.222;           // 1.0 → 1.222
+      const breathY = Math.sin(f / FPS * 0.9) * 3;
       return {
         charDX: 0, charDY: breathY,
-        charScaleX: 1 + puff, charScaleY: 1 + puff, charRotDeg: 0,
-        bgDX: 0, bgDY: -breathY * 0.06,
+        charScaleX: scale, charScaleY: scale, charRotDeg: 0,
+        bgDX: 0, bgDY: 0, glowMult: 1 + p * 0.6,
       };
     }
 
+    // ── TRIUMPHANT: 3 bounces (60 px up internal), drift right ──
     case 'triumphant': {
-      // Jump up/down (–40 px internal = –80 px final); rotation + lateral drift
-      const jump   = -Math.abs(Math.sin(t * Math.PI * 2.4)) * 40;
-      const rot    = Math.sin(t * Math.PI * 2.4) * 9;
-      const driftX = Math.sin(t * 0.7) * 22;
+      const jump   = -Math.abs(Math.sin(f * Math.PI / 100)) * 60;
+      const rotDeg = Math.sin(f * Math.PI / 100) * 10;
+      const driftX = lerp(-20, 20, p);
       return {
         charDX: driftX, charDY: jump,
-        charScaleX: 1, charScaleY: 1, charRotDeg: rot,
-        bgDX: -driftX * 0.12, bgDY: -jump * 0.08,
+        charScaleX: 1, charScaleY: 1, charRotDeg: rotDeg,
+        bgDX: -driftX * 0.12, bgDY: -jump * 0.06, glowMult: 1.3,
       };
     }
 
+    // ── PEACEFUL: slow figure-8 Lissajous, glow pulses ──
     case 'peaceful': {
-      // Very slow float and gentle sway
-      const floatY = Math.sin(t * 0.48) * 8;
-      const swayX  = Math.sin(t * 0.30) * 6;
-      const tilt   = Math.sin(t * 0.27) * 1.5;
+      const ω     = Math.PI / 300;             // 1 full X cycle = 20 s
+      const swayX = Math.sin(f * ω) * 42;
+      const floatY = Math.sin(f * ω * 2) * 18; // 2:1 ratio → figure-8
+      const glowPulse = 1 + Math.sin(f * ω * 3) * 0.28;
       return {
         charDX: swayX, charDY: floatY,
-        charScaleX: 1, charScaleY: 1, charRotDeg: tilt,
-        bgDX: -swayX * 0.10, bgDY: -floatY * 0.08,
+        charScaleX: 1, charScaleY: 1, charRotDeg: Math.sin(f * ω) * 2.5,
+        bgDX: -swayX * 0.08, bgDY: -floatY * 0.06, glowMult: glowPulse,
       };
     }
 
+    // ── SLEEPY: tilt + sink, movement decelerates to near-zero ──
     case 'sleepy': {
-      // Sinks downward; all movement slows to near-zero by scene end
-      const slowdown = 1 - p * 0.88;
-      const sinkY    = p * 28;
-      const drowsy   = Math.sin(t * 0.38 * slowdown) * 5 * slowdown;
-      const swayX    = Math.sin(t * 0.26 * slowdown) * 4 * slowdown;
-      const tilt     = Math.sin(t * 0.20 * slowdown) * 1.2 * slowdown;
+      const slowdown = Math.max(0.04, 1 - p * 0.96);
+      const sinkY    = p * 34;
+      const tiltDeg  = p * 15;
+      const drowsy   = Math.sin(f / FPS * 0.35 * slowdown) * 5 * slowdown;
+      const swayX    = Math.sin(f / FPS * 0.22 * slowdown) * 3 * slowdown;
       return {
         charDX: swayX, charDY: sinkY + drowsy,
-        charScaleX: 1, charScaleY: 1, charRotDeg: tilt,
-        bgDX: 0, bgDY: -sinkY * 0.07,
+        charScaleX: 1, charScaleY: 1, charRotDeg: tiltDeg,
+        bgDX: 0, bgDY: -sinkY * 0.05,
+        glowMult: Math.max(0.08, 1 - p * 0.92),
       };
     }
   }
 }
 
-// ── Golden particle system ────────────────────────────────────────────────────
+// ── Golden particle system (15 visible, 3-6 px radius) ───────────────────────
 
 interface Particle {
   spawnFrame: number;
-  lifetime:   number;  // frames
-  relX:       number;  // X offset relative to char centre
-  speedY:     number;  // px / frame (negative = up)
-  size:        number; // radius px
-  driftX:     number;  // gentle horizontal drift px / frame
+  lifetime:   number;
+  relX:       number;
+  speedY:     number;
+  size:       number;
+  driftX:     number;
 }
 
-// Simple 32-bit LCG seeded by scene index so particles are deterministic
 function makeRng(seed: number): () => number {
-  let s = (seed * 6364136223846793005 + 1442695040888963407) | 0;
+  let s = (seed * 6364136 + 1442695) | 0;
   return () => {
     s = Math.imul(1664525, s) + 1013904223;
     return (s >>> 0) / 0xffffffff;
@@ -215,23 +257,23 @@ function makeRng(seed: number): () => number {
 }
 
 function createParticles(sceneIndex: number): Particle[] {
-  const rng = makeRng(sceneIndex + 1);
-  const particles: Particle[] = [];
-  const spawnChance = 9 / 72; // ~9 visible at any time, avg 72-frame lifetime
+  const rng     = makeRng(sceneIndex + 7);
+  const out: Particle[] = [];
+  const chance  = 15 / 75;  // 15 visible, ~75-frame avg life
 
   for (let f = 0; f < FRAMES_PER_SCENE; f++) {
-    if (rng() < spawnChance) {
-      particles.push({
+    if (rng() < chance) {
+      out.push({
         spawnFrame: f,
-        lifetime:   Math.floor(rng() * 30) + 60,           // 60–90 frames
-        relX:       (rng() - 0.5) * CHAR_W * 1.6,          // spread across char width
-        speedY:     -(rng() * 1.4 + 0.5),                  // 0.5–1.9 px / frame up
-        size:        rng() * 2.2 + 0.8,                     // 0.8–3.0 px radius
-        driftX:      (rng() - 0.5) * 0.4,                  // slight left/right drift
+        lifetime:  Math.floor(rng() * 30) + 60,     // 60-90 frames (2-3 s)
+        relX:      (rng() - 0.5) * CHAR_W * 1.8,
+        speedY:    -(rng() * 1.6 + 0.5),
+        size:       rng() * 2.5 + 1.5,              // 1.5-4 px radius internal
+        driftX:    (rng() - 0.5) * 0.45,
       });
     }
   }
-  return particles;
+  return out;
 }
 
 function drawParticles(
@@ -245,26 +287,39 @@ function drawParticles(
   for (const p of particles) {
     const age = f - p.spawnFrame;
     if (age < 0 || age >= p.lifetime) continue;
-    const progress = age / p.lifetime;
-    // Fade in over 20%, fade out over remaining 80%
-    const alpha = progress < 0.2
-      ? (progress / 0.2) * 0.85
-      : ((1 - progress) / 0.8) * 0.85;
-    const px = charCX + p.relX + p.driftX * age;
-    const py = charCY + p.speedY * age;
-
+    const prog  = age / p.lifetime;
+    const alpha = prog < 0.2 ? (prog / 0.2) * 0.75 : ((1 - prog) / 0.8) * 0.75;
     ctx.globalAlpha = alpha;
     ctx.fillStyle   = GOLD;
-    ctx.shadowBlur  = 8;
+    ctx.shadowBlur  = 10;
     ctx.shadowColor = GOLD;
     ctx.beginPath();
-    ctx.arc(px, py, p.size, 0, Math.PI * 2);
+    ctx.arc(charCX + p.relX + p.driftX * age, charCY + p.speedY * age, p.size, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.restore();
 }
 
-// ── Text helper ───────────────────────────────────────────────────────────────
+// ── Name pulse (2 s at scene start) ──────────────────────────────────────────
+
+function getNamePulse(f: number): { scale: number; glowBlur: number } {
+  const PULSE = 60; // 2 s
+  if (f >= PULSE) return { scale: 1, glowBlur: 14 };
+  const pulse = Math.sin((f / PULSE) * Math.PI);
+  return { scale: 1 + pulse * 0.18, glowBlur: 14 + pulse * 24 };
+}
+
+// ── Word-by-word narration reveal (first 8 s) ─────────────────────────────────
+
+function getVisibleNarration(text: string, f: number): string {
+  const words = text.split(' ');
+  const ANIM_F = 240; // 8 s
+  if (f >= ANIM_F) return text;
+  const visible = Math.max(1, Math.ceil((f / ANIM_F) * words.length));
+  return words.slice(0, visible).join(' ');
+}
+
+// ── Text wrap ─────────────────────────────────────────────────────────────────
 
 function wrapText(ctx: SKRSContext2D, text: string, maxWidth: number): string[] {
   const words = text.split(' ');
@@ -272,18 +327,65 @@ function wrapText(ctx: SKRSContext2D, text: string, maxWidth: number): string[] 
   let line = '';
   for (const word of words) {
     const test = line ? line + ' ' + word : word;
-    if (ctx.measureText(test).width > maxWidth && line) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = test;
-    }
+    if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = word; }
+    else line = test;
   }
   if (line) lines.push(line);
   return lines;
 }
 
-// ── Frame renderer ────────────────────────────────────────────────────────────
+// ── Title card between scenes ─────────────────────────────────────────────────
+
+function drawTitleCard(ctx: SKRSContext2D, nextScene: RenderScene, f: number): void {
+  // Fade: in for first FADE_FRAMES, hold, out for last FADE_FRAMES
+  const fadeIn  = f < FADE_FRAMES      ? f / FADE_FRAMES          : 1;
+  const fadeOut = f > TITLE_CARD_FRAMES - FADE_FRAMES
+    ? 1 - (f - (TITLE_CARD_FRAMES - FADE_FRAMES)) / FADE_FRAMES : 1;
+  const alpha   = Math.min(fadeIn, fadeOut);
+
+  ctx.fillStyle = 'rgba(0,0,0,1)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  // Decorative line
+  ctx.strokeStyle = `${GOLD_RGBA},0.3)`;
+  ctx.lineWidth   = 1;
+  ctx.beginPath();
+  ctx.moveTo(W * 0.15, H / 2 - 38);
+  ctx.lineTo(W * 0.85, H / 2 - 38);
+  ctx.stroke();
+
+  // "Scene N"
+  ctx.font      = 'bold 28px Arial, sans-serif';
+  ctx.fillStyle = GOLD;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowBlur   = 18;
+  ctx.shadowColor  = GOLD;
+  ctx.fillText(`Scene ${nextScene.scene_number}`, W / 2, H / 2 - 18);
+
+  // Short teaser from narration
+  ctx.shadowBlur = 0;
+  ctx.font       = '15px Arial, sans-serif';
+  ctx.fillStyle  = 'rgba(255,255,255,0.65)';
+  const teaser   = nextScene.narration.length > 38
+    ? nextScene.narration.slice(0, 36) + '…'
+    : nextScene.narration;
+  ctx.fillText(teaser, W / 2, H / 2 + 18);
+
+  ctx.strokeStyle = `${GOLD_RGBA},0.3)`;
+  ctx.lineWidth   = 1;
+  ctx.beginPath();
+  ctx.moveTo(W * 0.15, H / 2 + 38);
+  ctx.lineTo(W * 0.85, H / 2 + 38);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// ── Main frame renderer ───────────────────────────────────────────────────────
 
 function drawFrame(
   ctx: SKRSContext2D,
@@ -296,34 +398,30 @@ function drawFrame(
   f: number,
   fadeAlpha: number,
 ): void {
-  // Actual character centre this frame
   const charCX = CHAR_BASE_CX + anim.charDX;
   const charCY = CHAR_BASE_CY + anim.charDY;
-
-  // ── Background with parallax (scale 6% larger so offsets never expose edges) ──
-  const bgScale = Math.max(W / bg.width, H / bg.height) * 1.06;
-  const bw = bg.width  * bgScale;
-  const bh = bg.height * bgScale;
-  ctx.drawImage(bg,
-    (W - bw) / 2 + anim.bgDX,
-    (H - bh) / 2 + anim.bgDY,
-    bw, bh,
-  );
-
-  // ── Vignette ──
-  const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.28, W / 2, H / 2, H * 0.82);
-  vig.addColorStop(0, 'rgba(0,0,0,0)');
-  vig.addColorStop(1, 'rgba(0,0,10,0.55)');
-  ctx.fillStyle = vig;
-  ctx.fillRect(0, 0, W, H);
-
-  // ── Golden glow behind character ──
   const glowHex = (char.glow_color ?? GOLD).replace('#', '');
   const gr = parseInt(glowHex.slice(0, 2), 16);
   const gg = parseInt(glowHex.slice(2, 4), 16);
   const gb = parseInt(glowHex.slice(4, 6), 16);
-  const glow = ctx.createRadialGradient(charCX, charCY, 10, charCX, charCY, 210);
-  glow.addColorStop(0, `rgba(${gr},${gg},${gb},0.28)`);
+
+  // ── Background with parallax (scale 8% larger so offsets never expose edges) ──
+  const bgScale = Math.max(W / bg.width, H / bg.height) * 1.08;
+  const bw = bg.width  * bgScale;
+  const bh = bg.height * bgScale;
+  ctx.drawImage(bg, (W - bw) / 2 + anim.bgDX, (H - bh) / 2 + anim.bgDY, bw, bh);
+
+  // ── Vignette ──
+  const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.26, W / 2, H / 2, H * 0.82);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,10,0.58)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Golden glow behind character ──
+  const glowAlpha = Math.min(0.38, 0.26 * anim.glowMult);
+  const glow = ctx.createRadialGradient(charCX, charCY, 10, charCX, charCY, 220);
+  glow.addColorStop(0, `rgba(${gr},${gg},${gb},${glowAlpha})`);
   glow.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, W, H);
@@ -331,7 +429,7 @@ function drawFrame(
   // ── Golden particles (behind character) ──
   drawParticles(ctx, particles, f, charCX, charCY);
 
-  // ── Character pose — translated, scaled, rotated, screen-blended ──
+  // ── Character pose — transformed, screen-blended ──
   ctx.save();
   ctx.globalCompositeOperation = 'screen';
   ctx.translate(charCX, charCY);
@@ -341,51 +439,55 @@ function drawFrame(
   ctx.drawImage(pose, -CHAR_W / 2, -CHAR_H / 2, CHAR_W, CHAR_H);
   ctx.restore();
 
-  // ── Sidekick emoji (floats beside character) ──
+  // ── Sidekick emoji — bobs independently from character ──
   const sk = (char.sidekick ?? '').toLowerCase();
   if (sk && sk !== 'none') {
     const emoji = SIDEKICK_MAP[sk] ?? '✨';
-    const t = f / FPS;
-    const skX = charCX + CHAR_W / 2 + 22 + Math.sin(t * 1.4) * 5;
-    const skY = charCY - CHAR_H * 0.18   + Math.sin(t * 1.8) * 7;
+    const skBob = Math.sin(f / FPS * 2.3) * 10;
+    const skX   = Math.min(W - 28, charCX + CHAR_W / 2 * anim.charScaleX + 32);
+    const skY   = charCY - CHAR_H * 0.18 * anim.charScaleY + skBob;
     ctx.save();
     ctx.font = '34px serif';
-    ctx.textAlign = 'center';
+    ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(emoji, skX, skY);
     ctx.restore();
   }
 
-  // ── Child's name — large gold text at top ──
+  // ── Child's name — pulsing gold at top ──
+  const { scale: nameScale, glowBlur: nameGlow } = getNamePulse(f);
   ctx.save();
-  ctx.font = NAME_FONT;
-  ctx.textAlign = 'center';
+  ctx.translate(W / 2, NAME_Y);
+  if (nameScale !== 1) ctx.scale(nameScale, nameScale);
+  ctx.font         = 'bold 36px Arial, sans-serif';
+  ctx.textAlign    = 'center';
   ctx.textBaseline = 'middle';
-  ctx.shadowColor   = 'rgba(0,0,0,0.88)';
-  ctx.shadowBlur    = 14;
-  ctx.shadowOffsetY = 3;
-  ctx.fillStyle = GOLD;
-  ctx.fillText(char.child_name, W / 2, 52);
+  ctx.shadowColor  = GOLD;
+  ctx.shadowBlur   = nameGlow;
+  ctx.shadowOffsetY = 2;
+  ctx.fillStyle    = GOLD;
+  ctx.fillText(char.child_name, 0, 0);
   ctx.restore();
 
-  // ── Narration box ──
+  // ── Narration box with word-by-word reveal ──
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,12,0.72)';
   ctx.beginPath();
   ctx.roundRect(BOX_X, BOX_Y, BOX_W, BOX_H, 14);
   ctx.fill();
-  ctx.strokeStyle = 'rgba(247,233,107,0.30)';
+  ctx.strokeStyle = `${GOLD_RGBA},0.28)`;
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  ctx.font = '18px Arial, sans-serif';
-  ctx.fillStyle = 'rgba(255,255,255,0.96)';
-  ctx.textAlign = 'center';
+  ctx.font         = '18px Arial, sans-serif';
+  ctx.fillStyle    = 'rgba(255,255,255,0.96)';
+  ctx.textAlign    = 'center';
   ctx.textBaseline = 'top';
-  ctx.shadowBlur = 4;
-  ctx.shadowColor = 'rgba(0,0,0,0.9)';
+  ctx.shadowBlur   = 4;
+  ctx.shadowColor  = 'rgba(0,0,0,0.9)';
   ctx.shadowOffsetY = 1;
-  const lines   = wrapText(ctx, scene.narration, BOX_W - 28);
+  const visibleText = getVisibleNarration(scene.narration, f);
+  const lines   = wrapText(ctx, visibleText, BOX_W - 28);
   const lineH   = 24;
   const totalTH = lines.length * lineH;
   const textY   = BOX_Y + (BOX_H - 20 - totalTH) / 2;
@@ -394,18 +496,18 @@ function drawFrame(
 
   // ── Watermark ──
   ctx.save();
-  ctx.font = '10px Arial, sans-serif';
-  ctx.fillStyle = 'rgba(247,233,107,0.45)';
-  ctx.textAlign = 'center';
+  ctx.font         = '10px Arial, sans-serif';
+  ctx.fillStyle    = `${GOLD_RGBA},0.42)`;
+  ctx.textAlign    = 'center';
   ctx.textBaseline = 'bottom';
   ctx.fillText('✦ DreamStick Adventures', W / 2, BOX_Y + BOX_H - 5);
   ctx.restore();
 
   // ── Scene indicator ──
   ctx.save();
-  ctx.font = '10px Arial, sans-serif';
-  ctx.fillStyle = 'rgba(255,215,0,0.35)';
-  ctx.textAlign = 'right';
+  ctx.font         = '10px Arial, sans-serif';
+  ctx.fillStyle    = 'rgba(255,215,0,0.32)';
+  ctx.textAlign    = 'right';
   ctx.textBaseline = 'top';
   ctx.fillText(`Scene ${scene.scene_number} of 6`, W - 12, 12);
   ctx.restore();
@@ -420,9 +522,9 @@ function drawFrame(
 // ── Background loader ─────────────────────────────────────────────────────────
 
 async function loadBg(theme: string, used: Set<number>): Promise<Image> {
-  const dir = path.join(BACKGROUNDS_DIR, theme.toLowerCase());
+  const dir       = path.join(BACKGROUNDS_DIR, theme.toLowerCase());
   const available = [1, 2, 3].filter(n => !used.has(n));
-  const pick = available.length > 0
+  const pick      = available.length > 0
     ? available[Math.floor(Math.random() * available.length)]
     : Math.floor(Math.random() * 3) + 1;
   used.add(pick);
@@ -467,14 +569,21 @@ export async function renderVideo(char: RenderCharacter, story: RenderStory): Pr
   ff.stderr.on('data', (d: Buffer) => ffErrors.push(d.toString()));
   const done = new Promise<void>((resolve, reject) => {
     ff.on('close', (code: number) =>
-      code === 0 ? resolve() : reject(new Error(`ffmpeg exit ${code}: ${ffErrors.join('').slice(-800)}`))
+      code === 0 ? resolve()
+        : reject(new Error(`ffmpeg exit ${code}: ${ffErrors.join('').slice(-800)}`))
     );
     ff.on('error', reject);
   });
 
-  const canvas = createCanvas(W, H);
-  const ctx    = canvas.getContext('2d');
+  const canvas      = createCanvas(W, H);
+  const ctx         = canvas.getContext('2d');
   const totalScenes = story.scenes.length;
+
+  const writeFrame = async () => {
+    const raw = Buffer.from(ctx.getImageData(0, 0, W, H).data.buffer);
+    const ok  = ff.stdin.write(raw);
+    if (!ok) await new Promise<void>(r => ff.stdin.once('drain', r));
+  };
 
   try {
     for (let si = 0; si < totalScenes; si++) {
@@ -482,27 +591,37 @@ export async function renderVideo(char: RenderCharacter, story: RenderStory): Pr
       const bg          = bgs[si];
       const isLastScene = si === totalScenes - 1;
       const mood        = scene.mood as Mood;
-      const pose        = pickPose(mood, isLastScene, poses);
-      const particles   = createParticles(si); // deterministic per scene
+      const particles   = createParticles(si);
 
+      // ── Scene frames ──────────────────────────────────────────────────────
       for (let f = 0; f < FRAMES_PER_SCENE; f++) {
-        // Fade in/out logic
         let fadeAlpha = 0;
+
+        // Fade in from previous title card
         if (si > 0 && f < FADE_FRAMES)
           fadeAlpha = 1 - f / FADE_FRAMES;
-        if (si < totalScenes - 1 && f >= FRAMES_PER_SCENE - FADE_FRAMES)
+
+        // Fade out to next title card (or final fade for last scene)
+        if (!isLastScene && f >= FRAMES_PER_SCENE - FADE_FRAMES)
           fadeAlpha = (f - (FRAMES_PER_SCENE - FADE_FRAMES)) / FADE_FRAMES;
         if (isLastScene && f >= FRAMES_PER_SCENE - FADE_FRAMES * 3)
           fadeAlpha = (f - (FRAMES_PER_SCENE - FADE_FRAMES * 3)) / (FADE_FRAMES * 3);
 
-        const anim = getMoodAnim(mood, f, FRAMES_PER_SCENE);
+        const pose = pickPose(mood, f, isLastScene, poses);
+        const anim = getMoodState(mood, f, FRAMES_PER_SCENE);
 
         drawFrame(ctx, bg, char, scene, pose, anim, particles, f,
                   Math.min(1, Math.max(0, fadeAlpha)));
+        await writeFrame();
+      }
 
-        const raw = Buffer.from(ctx.getImageData(0, 0, W, H).data.buffer);
-        const ok  = ff.stdin.write(raw);
-        if (!ok) await new Promise<void>(r => ff.stdin.once('drain', r));
+      // ── Title card between scenes ─────────────────────────────────────────
+      if (!isLastScene) {
+        const nextScene = story.scenes[si + 1];
+        for (let f = 0; f < TITLE_CARD_FRAMES; f++) {
+          drawTitleCard(ctx, nextScene, f);
+          await writeFrame();
+        }
       }
     }
   } finally {
