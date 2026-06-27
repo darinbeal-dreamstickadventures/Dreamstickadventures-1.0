@@ -43,6 +43,7 @@ export type Mood = 'excited' | 'curious' | 'brave' | 'triumphant' | 'peaceful' |
 
 export interface RenderCharacter {
   child_name: string;
+  character_type?: string;
   build?: string;
   hair_style?: string;
   hair_color?: string;
@@ -82,8 +83,8 @@ interface PoseImages {
   yawning: Image;
 }
 
-async function loadPoses(): Promise<PoseImages> {
-  const load = (name: string) => loadImage(path.join(POSES_DIR, `boy-${name}.png`));
+async function loadPoses(prefix: 'boy' | 'girl'): Promise<PoseImages> {
+  const load = (name: string) => loadImage(path.join(POSES_DIR, `${prefix}-${name}.png`));
   const [asleep, curious, heroic, peaceful, pointing, run, sneak, triumph, walk, wave, wonder, yawning] =
     await Promise.all([
       load('asleep'), load('curious'), load('heroic'), load('peaceful'),
@@ -298,9 +299,11 @@ export async function renderVideo(char: RenderCharacter, story: RenderStory): Pr
   const outPath = path.join(VIDEOS_DIR, `${safeName}-${ts}.mp4`);
   const theme = (char.theme ?? 'space').toLowerCase();
 
+  const posePrefix: 'boy' | 'girl' = char.character_type === 'girl' ? 'girl' : 'boy';
+
   // Load poses and backgrounds in parallel
   const [poses, bgs] = await Promise.all([
-    loadPoses(),
+    loadPoses(posePrefix),
     (async () => {
       const used = new Set<number>();
       const result: Image[] = [];

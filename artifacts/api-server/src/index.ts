@@ -98,18 +98,18 @@ app.get('/api/cancel', (_req, res) => {
 app.post('/api/character', async (req, res): Promise<void> => {
   try {
     const {
-      parent_email, child_name, child_age, build,
+      parent_email, child_name, child_age, character_type, build,
       hair_style, hair_color, skin_tone, outfit_color,
       glow_color, accessories, sidekick, theme, subscription_status,
     } = req.body;
 
     const result = await pool.query(
       `INSERT INTO characters
-        (parent_email, child_name, child_age, build, hair_style, hair_color,
+        (parent_email, child_name, child_age, character_type, build, hair_style, hair_color,
          skin_tone, outfit_color, glow_color, accessories, sidekick, theme, subscription_status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING id`,
-      [parent_email, child_name, child_age, build, hair_style, hair_color,
+      [parent_email, child_name, child_age, character_type ?? 'boy', build, hair_style, hair_color,
        skin_tone, outfit_color, glow_color, accessories, sidekick, theme,
        subscription_status ?? 'waitlist'],
     );
@@ -141,6 +141,7 @@ interface Story {
 interface Character {
   child_name: string;
   child_age: number;
+  character_type?: string;
   build?: string;
   hair_style?: string;
   hair_color?: string;

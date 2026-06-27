@@ -147,6 +147,13 @@ canvas#preview {
           <input type="text" id="child_name" placeholder="e.g. Kevin" maxlength="20">
         </div>
         <div class="field">
+          <label>Character Type</label>
+          <select id="character_type">
+            <option value="boy">Boy</option>
+            <option value="girl">Girl</option>
+          </select>
+        </div>
+        <div class="field">
           <label>Age</label>
           <select id="child_age">
             <option value="3">3 years old</option>
@@ -441,6 +448,7 @@ async function submitCharacter() {
     parent_email: email,
     child_name: name,
     child_age: parseInt(age),
+    character_type: document.getElementById('character_type').value,
     build: document.getElementById('build').value,
     hair_style: document.getElementById('hair_style').value,
     hair_color: document.getElementById('hair_color').value,
