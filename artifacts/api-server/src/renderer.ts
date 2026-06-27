@@ -6,35 +6,35 @@ import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 
 const __rendererFilename = fileURLToPath(import.meta.url);
-const __rendererDirname = path.dirname(__rendererFilename);
+const __rendererDirname  = path.dirname(__rendererFilename);
 
-const W = 540;
-const H = 960;
+const W   = 540;
+const H   = 960;
 const OUT_W = 1080;
 const OUT_H = 1920;
 const FPS = 30;
-const FRAMES_PER_SCENE = 20 * FPS;  // 600 frames = 20 s
-const FADE_FRAMES      = 20;         // 0.67 s fade each side
-const TITLE_CARD_FRAMES = 20;        // 0.67 s scene-title card between scenes
+const FRAMES_PER_SCENE  = 20 * FPS; // 600 frames = 20 s
+const FADE_FRAMES       = 20;        // 0.67 s fade each side
+const TITLE_CARD_FRAMES = 20;        // title card between scenes
 
-const VIDEOS_DIR      = '/tmp/dreamstick-videos';
+const VIDEOS_DIR        = '/tmp/dreamstick-videos';
 const PUBLIC_VIDEOS_DIR = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'videos');
 const BACKGROUNDS_DIR   = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'backgrounds');
 const CHARACTERS_DIR    = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'characters');
 
-// Character layout (internal 540×960; ×2 in final 1080×1920)
-const CHAR_H       = 450;                          // → 900 px final
-const CHAR_W       = Math.round(CHAR_H * 0.558);  // → ≈ 251 px
-const CHAR_BOTTOM  = 762;
-const CHAR_TOP_BASE = CHAR_BOTTOM - CHAR_H;       // ≈ 312
-const CHAR_BASE_CX  = W / 2;                      // 270
-const CHAR_BASE_CY  = CHAR_TOP_BASE + CHAR_H / 2; // ≈ 537
+// Character layout — internal canvas is 540×960; ffmpeg upscales 2× to 1080×1920
+const CHAR_H        = 450;                         // 900 px in final output
+const CHAR_W        = Math.round(CHAR_H * 0.558);  // ≈ 251 px
+const CHAR_BOTTOM   = 762;
+const CHAR_TOP      = CHAR_BOTTOM - CHAR_H;        // ≈ 312
+const CHAR_CX       = W / 2;                       // 270 — horizontally centred
+const CHAR_CY       = CHAR_TOP + CHAR_H / 2;       // ≈ 537
 
 // Narration box
-const BOX_Y = 772;
-const BOX_H = 170;
 const BOX_X = 18;
+const BOX_Y = 772;
 const BOX_W = W - 36;
+const BOX_H = 170;
 
 const NAME_Y    = 52;
 const GOLD      = '#f7e96b';
@@ -74,7 +74,7 @@ export interface RenderStory {
   scenes: RenderScene[];
 }
 
-// ── Pose set ──────────────────────────────────────────────────────────────────
+// ── Pose loading ──────────────────────────────────────────────────────────────
 
 interface PoseSet {
   run: Image; curious: Image; heroic: Image;
@@ -92,7 +92,7 @@ async function loadPoseSet(gender: 'boy' | 'girl'): Promise<PoseSet> {
 }
 
 function pickPose(mood: Mood, f: number, isLastScene: boolean, poses: PoseSet): Image {
-  if (isLastScene && f >= 450) return poses.asleep;       // sleepy → asleep at 15 s
+  if (isLastScene && f >= 450) return poses.asleep;  // switch to asleep at 15 s
   if (isLastScene)              return poses.yawning;
   switch (mood) {
     case 'excited':    return poses.run;
@@ -104,140 +104,7 @@ function pickPose(mood: Mood, f: number, isLastScene: boolean, poses: PoseSet): 
   }
 }
 
-// ── Animation helpers ─────────────────────────────────────────────────────────
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * Math.max(0, Math.min(1, t));
-}
-function easeInOut(t: number): number {
-  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-}
-
-/** Simulates A → B → C walking cycle. Returns Y offset (negative = up = mid-stride). */
-function walkStepDY(f: number, stepsPerSec = 8): number {
-  const step = Math.floor((f * stepsPerSec * 3) / FPS) % 3;
-  return step === 1 ? -8 : 0; // Frame B lifts 8 px internal (16 px final)
-}
-
-// ── Per-mood animation state ──────────────────────────────────────────────────
-
-interface AnimState {
-  charDX:     number;   // offset from CHAR_BASE_CX
-  charDY:     number;   // offset (positive = down)
-  charScaleX: number;
-  charScaleY: number;
-  charRotDeg: number;
-  bgDX:       number;   // parallax offset
-  bgDY:       number;
-  glowMult:   number;   // multiplier on glow alpha
-}
-
-function getMoodState(mood: Mood, f: number, totalF: number): AnimState {
-  const p = f / totalF;
-
-  switch (mood) {
-
-    // ── EXCITED: walk left → right continuously, looping every 8 s ──
-    case 'excited': {
-      const periodF = FPS * 8;
-      const phase   = (f % periodF) / periodF;
-      const travelW = W + CHAR_W;
-      const charCX  = phase * travelW - CHAR_W / 2;
-      const charDX  = charCX - CHAR_BASE_CX;
-      const stepDY  = walkStepDY(f, 10); // running pace
-      return {
-        charDX, charDY: stepDY,
-        charScaleX: 1, charScaleY: 1, charRotDeg: 0,
-        bgDX: -charDX * 0.10, bgDY: 0, glowMult: 1,
-      };
-    }
-
-    // ── CURIOUS: walk to centre → look around → walk away → return ──
-    case 'curious': {
-      let charDX = 0, charDY = 0, charScale = 1, charRotDeg = 0;
-
-      if (f < 150) {                          // 0-5 s: approach from left
-        const t = f / 150;
-        charDX    = lerp(-80, 0, easeInOut(t));
-        charDY    = walkStepDY(f, 5);
-      } else if (f < 240) {                   // 5-8 s: look around
-        const t   = (f - 150) / 90;
-        charDX    = Math.sin(t * Math.PI * 3) * 14;
-        charRotDeg = Math.sin(t * Math.PI * 2) * 5;
-        charScale = 1 + Math.sin(t * Math.PI) * 0.03;
-      } else if (f < 420) {                   // 8-14 s: walk away (shrink)
-        const t   = (f - 240) / 180;
-        charDX    = Math.sin(t * Math.PI * 2) * 6;
-        charDY    = walkStepDY(f, 5);
-        charScale = lerp(1, 0.68, easeInOut(t));
-      } else {                                // 14-20 s: return (grow back)
-        const t   = (f - 420) / 180;
-        charDX    = Math.sin(t * Math.PI * 1.5) * 6;
-        charDY    = walkStepDY(f, 5);
-        charScale = lerp(0.68, 1, easeInOut(t));
-      }
-
-      return {
-        charDX, charDY,
-        charScaleX: charScale, charScaleY: charScale, charRotDeg,
-        bgDX: -charDX * 0.13, bgDY: 0, glowMult: 1,
-      };
-    }
-
-    // ── BRAVE: cinematic zoom from 900 → 1100 px final height ──
-    case 'brave': {
-      const scale  = 1 + p * 0.222;           // 1.0 → 1.222
-      const breathY = Math.sin(f / FPS * 0.9) * 3;
-      return {
-        charDX: 0, charDY: breathY,
-        charScaleX: scale, charScaleY: scale, charRotDeg: 0,
-        bgDX: 0, bgDY: 0, glowMult: 1 + p * 0.6,
-      };
-    }
-
-    // ── TRIUMPHANT: 3 bounces (60 px up internal), drift right ──
-    case 'triumphant': {
-      const jump   = -Math.abs(Math.sin(f * Math.PI / 100)) * 60;
-      const rotDeg = Math.sin(f * Math.PI / 100) * 10;
-      const driftX = lerp(-20, 20, p);
-      return {
-        charDX: driftX, charDY: jump,
-        charScaleX: 1, charScaleY: 1, charRotDeg: rotDeg,
-        bgDX: -driftX * 0.12, bgDY: -jump * 0.06, glowMult: 1.3,
-      };
-    }
-
-    // ── PEACEFUL: slow figure-8 Lissajous, glow pulses ──
-    case 'peaceful': {
-      const ω     = Math.PI / 300;             // 1 full X cycle = 20 s
-      const swayX = Math.sin(f * ω) * 42;
-      const floatY = Math.sin(f * ω * 2) * 18; // 2:1 ratio → figure-8
-      const glowPulse = 1 + Math.sin(f * ω * 3) * 0.28;
-      return {
-        charDX: swayX, charDY: floatY,
-        charScaleX: 1, charScaleY: 1, charRotDeg: Math.sin(f * ω) * 2.5,
-        bgDX: -swayX * 0.08, bgDY: -floatY * 0.06, glowMult: glowPulse,
-      };
-    }
-
-    // ── SLEEPY: tilt + sink, movement decelerates to near-zero ──
-    case 'sleepy': {
-      const slowdown = Math.max(0.04, 1 - p * 0.96);
-      const sinkY    = p * 34;
-      const tiltDeg  = p * 15;
-      const drowsy   = Math.sin(f / FPS * 0.35 * slowdown) * 5 * slowdown;
-      const swayX    = Math.sin(f / FPS * 0.22 * slowdown) * 3 * slowdown;
-      return {
-        charDX: swayX, charDY: sinkY + drowsy,
-        charScaleX: 1, charScaleY: 1, charRotDeg: tiltDeg,
-        bgDX: 0, bgDY: -sinkY * 0.05,
-        glowMult: Math.max(0.08, 1 - p * 0.92),
-      };
-    }
-  }
-}
-
-// ── Golden particle system (15 visible, 3-6 px radius) ───────────────────────
+// ── Particle system ───────────────────────────────────────────────────────────
 
 interface Particle {
   spawnFrame: number;
@@ -248,7 +115,7 @@ interface Particle {
   driftX:     number;
 }
 
-function makeRng(seed: number): () => number {
+function seededRng(seed: number): () => number {
   let s = (seed * 6364136 + 1442695) | 0;
   return () => {
     s = Math.imul(1664525, s) + 1013904223;
@@ -257,19 +124,18 @@ function makeRng(seed: number): () => number {
 }
 
 function createParticles(sceneIndex: number): Particle[] {
-  const rng     = makeRng(sceneIndex + 7);
+  const rng    = seededRng(sceneIndex + 7);
   const out: Particle[] = [];
-  const chance  = 15 / 75;  // 15 visible, ~75-frame avg life
-
+  const chance = 15 / 75; // ~15 particles visible at once, ~75-frame avg life
   for (let f = 0; f < FRAMES_PER_SCENE; f++) {
     if (rng() < chance) {
       out.push({
         spawnFrame: f,
-        lifetime:  Math.floor(rng() * 30) + 60,     // 60-90 frames (2-3 s)
-        relX:      (rng() - 0.5) * CHAR_W * 1.8,
-        speedY:    -(rng() * 1.6 + 0.5),
-        size:       rng() * 2.5 + 1.5,              // 1.5-4 px radius internal
-        driftX:    (rng() - 0.5) * 0.45,
+        lifetime:   Math.floor(rng() * 30) + 60,
+        relX:       (rng() - 0.5) * CHAR_W * 1.8,
+        speedY:     -(rng() * 1.6 + 0.5),
+        size:        rng() * 2.5 + 1.5,
+        driftX:     (rng() - 0.5) * 0.45,
       });
     }
   }
@@ -277,56 +143,37 @@ function createParticles(sceneIndex: number): Particle[] {
 }
 
 function drawParticles(
-  ctx: SKRSContext2D,
-  particles: Particle[],
-  f: number,
-  charCX: number,
-  charCY: number,
+  ctx: SKRSContext2D, particles: Particle[], f: number,
 ): void {
   ctx.save();
   for (const p of particles) {
     const age = f - p.spawnFrame;
     if (age < 0 || age >= p.lifetime) continue;
     const prog  = age / p.lifetime;
-    const alpha = prog < 0.2 ? (prog / 0.2) * 0.75 : ((1 - prog) / 0.8) * 0.75;
+    const alpha = prog < 0.2 ? (prog / 0.2) * 0.7 : ((1 - prog) / 0.8) * 0.7;
     ctx.globalAlpha = alpha;
     ctx.fillStyle   = GOLD;
     ctx.shadowBlur  = 10;
     ctx.shadowColor = GOLD;
     ctx.beginPath();
-    ctx.arc(charCX + p.relX + p.driftX * age, charCY + p.speedY * age, p.size, 0, Math.PI * 2);
+    ctx.arc(
+      CHAR_CX + p.relX + p.driftX * age,
+      CHAR_CY + p.speedY * age,
+      p.size, 0, Math.PI * 2,
+    );
     ctx.fill();
   }
   ctx.restore();
 }
 
-// ── Name pulse (2 s at scene start) ──────────────────────────────────────────
-
-function getNamePulse(f: number): { scale: number; glowBlur: number } {
-  const PULSE = 60; // 2 s
-  if (f >= PULSE) return { scale: 1, glowBlur: 14 };
-  const pulse = Math.sin((f / PULSE) * Math.PI);
-  return { scale: 1 + pulse * 0.18, glowBlur: 14 + pulse * 24 };
-}
-
-// ── Word-by-word narration reveal (first 8 s) ─────────────────────────────────
-
-function getVisibleNarration(text: string, f: number): string {
-  const words = text.split(' ');
-  const ANIM_F = 240; // 8 s
-  if (f >= ANIM_F) return text;
-  const visible = Math.max(1, Math.ceil((f / ANIM_F) * words.length));
-  return words.slice(0, visible).join(' ');
-}
-
-// ── Text wrap ─────────────────────────────────────────────────────────────────
+// ── Text helpers ──────────────────────────────────────────────────────────────
 
 function wrapText(ctx: SKRSContext2D, text: string, maxWidth: number): string[] {
   const words = text.split(' ');
   const lines: string[] = [];
   let line = '';
   for (const word of words) {
-    const test = line ? line + ' ' + word : word;
+    const test = line ? `${line} ${word}` : word;
     if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = word; }
     else line = test;
   }
@@ -334,58 +181,60 @@ function wrapText(ctx: SKRSContext2D, text: string, maxWidth: number): string[] 
   return lines;
 }
 
+/** Reveal words one at a time over the first 8 seconds of each scene. */
+function getVisibleNarration(text: string, f: number): string {
+  const words = text.split(' ');
+  const ANIM_F = 240; // 8 s
+  if (f >= ANIM_F) return text;
+  const count = Math.max(1, Math.ceil((f / ANIM_F) * words.length));
+  return words.slice(0, count).join(' ');
+}
+
 // ── Title card between scenes ─────────────────────────────────────────────────
 
 function drawTitleCard(ctx: SKRSContext2D, nextScene: RenderScene, f: number): void {
-  // Fade: in for first FADE_FRAMES, hold, out for last FADE_FRAMES
-  const fadeIn  = f < FADE_FRAMES      ? f / FADE_FRAMES          : 1;
-  const fadeOut = f > TITLE_CARD_FRAMES - FADE_FRAMES
-    ? 1 - (f - (TITLE_CARD_FRAMES - FADE_FRAMES)) / FADE_FRAMES : 1;
-  const alpha   = Math.min(fadeIn, fadeOut);
-
   ctx.fillStyle = 'rgba(0,0,0,1)';
   ctx.fillRect(0, 0, W, H);
 
+  const alpha = Math.min(
+    f < FADE_FRAMES ? f / FADE_FRAMES : 1,
+    f > TITLE_CARD_FRAMES - FADE_FRAMES
+      ? 1 - (f - (TITLE_CARD_FRAMES - FADE_FRAMES)) / FADE_FRAMES : 1,
+  );
   ctx.save();
-  ctx.globalAlpha = alpha;
+  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
 
-  // Decorative line
   ctx.strokeStyle = `${GOLD_RGBA},0.3)`;
   ctx.lineWidth   = 1;
   ctx.beginPath();
-  ctx.moveTo(W * 0.15, H / 2 - 38);
-  ctx.lineTo(W * 0.85, H / 2 - 38);
+  ctx.moveTo(W * 0.15, H / 2 - 38); ctx.lineTo(W * 0.85, H / 2 - 38);
   ctx.stroke();
 
-  // "Scene N"
-  ctx.font      = 'bold 28px Arial, sans-serif';
-  ctx.fillStyle = GOLD;
-  ctx.textAlign = 'center';
+  ctx.font         = 'bold 28px Arial, sans-serif';
+  ctx.fillStyle    = GOLD;
+  ctx.textAlign    = 'center';
   ctx.textBaseline = 'middle';
   ctx.shadowBlur   = 18;
   ctx.shadowColor  = GOLD;
   ctx.fillText(`Scene ${nextScene.scene_number}`, W / 2, H / 2 - 18);
 
-  // Short teaser from narration
   ctx.shadowBlur = 0;
   ctx.font       = '15px Arial, sans-serif';
   ctx.fillStyle  = 'rgba(255,255,255,0.65)';
   const teaser   = nextScene.narration.length > 38
-    ? nextScene.narration.slice(0, 36) + '…'
-    : nextScene.narration;
+    ? nextScene.narration.slice(0, 36) + '…' : nextScene.narration;
   ctx.fillText(teaser, W / 2, H / 2 + 18);
 
   ctx.strokeStyle = `${GOLD_RGBA},0.3)`;
   ctx.lineWidth   = 1;
   ctx.beginPath();
-  ctx.moveTo(W * 0.15, H / 2 + 38);
-  ctx.lineTo(W * 0.85, H / 2 + 38);
+  ctx.moveTo(W * 0.15, H / 2 + 38); ctx.lineTo(W * 0.85, H / 2 + 38);
   ctx.stroke();
 
   ctx.restore();
 }
 
-// ── Main frame renderer ───────────────────────────────────────────────────────
+// ── Main frame draw (simple: character centred, no complex movement) ───────────
 
 function drawFrame(
   ctx: SKRSContext2D,
@@ -393,59 +242,50 @@ function drawFrame(
   char: RenderCharacter,
   scene: RenderScene,
   pose: Image,
-  anim: AnimState,
   particles: Particle[],
   f: number,
   fadeAlpha: number,
 ): void {
-  const charCX = CHAR_BASE_CX + anim.charDX;
-  const charCY = CHAR_BASE_CY + anim.charDY;
   const glowHex = (char.glow_color ?? GOLD).replace('#', '');
-  const gr = parseInt(glowHex.slice(0, 2), 16);
-  const gg = parseInt(glowHex.slice(2, 4), 16);
-  const gb = parseInt(glowHex.slice(4, 6), 16);
+  const gr = parseInt(glowHex.slice(0, 2), 16) || 247;
+  const gg = parseInt(glowHex.slice(2, 4), 16) || 233;
+  const gb = parseInt(glowHex.slice(4, 6), 16) || 107;
 
-  // ── Background with parallax (scale 8% larger so offsets never expose edges) ──
-  const bgScale = Math.max(W / bg.width, H / bg.height) * 1.08;
+  // ── Background (centred, scaled to fill) ──
+  const bgScale = Math.max(W / bg.width, H / bg.height);
   const bw = bg.width  * bgScale;
   const bh = bg.height * bgScale;
-  ctx.drawImage(bg, (W - bw) / 2 + anim.bgDX, (H - bh) / 2 + anim.bgDY, bw, bh);
+  ctx.drawImage(bg, (W - bw) / 2, (H - bh) / 2, bw, bh);
 
   // ── Vignette ──
-  const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.26, W / 2, H / 2, H * 0.82);
+  const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.28, W / 2, H / 2, H * 0.85);
   vig.addColorStop(0, 'rgba(0,0,0,0)');
-  vig.addColorStop(1, 'rgba(0,0,10,0.58)');
+  vig.addColorStop(1, 'rgba(0,0,10,0.55)');
   ctx.fillStyle = vig;
   ctx.fillRect(0, 0, W, H);
 
-  // ── Golden glow behind character ──
-  const glowAlpha = Math.min(0.38, 0.26 * anim.glowMult);
-  const glow = ctx.createRadialGradient(charCX, charCY, 10, charCX, charCY, 220);
-  glow.addColorStop(0, `rgba(${gr},${gg},${gb},${glowAlpha})`);
+  // ── Glow behind character ──
+  const glow = ctx.createRadialGradient(CHAR_CX, CHAR_CY, 10, CHAR_CX, CHAR_CY, 210);
+  glow.addColorStop(0, `rgba(${gr},${gg},${gb},0.28)`);
   glow.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, W, H);
 
-  // ── Golden particles (behind character) ──
-  drawParticles(ctx, particles, f, charCX, charCY);
+  // ── Particles (behind character) ──
+  drawParticles(ctx, particles, f);
 
-  // ── Character pose — transformed, screen-blended ──
+  // ── Character pose — centred, screen-blended ──
   ctx.save();
   ctx.globalCompositeOperation = 'screen';
-  ctx.translate(charCX, charCY);
-  if (anim.charRotDeg !== 0) ctx.rotate(anim.charRotDeg * Math.PI / 180);
-  if (anim.charScaleX !== 1 || anim.charScaleY !== 1)
-    ctx.scale(anim.charScaleX, anim.charScaleY);
-  ctx.drawImage(pose, -CHAR_W / 2, -CHAR_H / 2, CHAR_W, CHAR_H);
+  ctx.drawImage(pose, CHAR_CX - CHAR_W / 2, CHAR_TOP, CHAR_W, CHAR_H);
   ctx.restore();
 
-  // ── Sidekick emoji — bobs independently from character ──
+  // ── Sidekick emoji — bobs gently to the right of the character ──
   const sk = (char.sidekick ?? '').toLowerCase();
   if (sk && sk !== 'none') {
-    const emoji = SIDEKICK_MAP[sk] ?? '✨';
-    const skBob = Math.sin(f / FPS * 2.3) * 10;
-    const skX   = Math.min(W - 28, charCX + CHAR_W / 2 * anim.charScaleX + 32);
-    const skY   = charCY - CHAR_H * 0.18 * anim.charScaleY + skBob;
+    const emoji  = SIDEKICK_MAP[sk] ?? '✨';
+    const skX    = Math.min(W - 28, CHAR_CX + CHAR_W / 2 + 32);
+    const skY    = CHAR_CY - CHAR_H * 0.18 + Math.sin(f / FPS * 2.3) * 8;
     ctx.save();
     ctx.font = '34px serif';
     ctx.textAlign    = 'center';
@@ -454,19 +294,16 @@ function drawFrame(
     ctx.restore();
   }
 
-  // ── Child's name — pulsing gold at top ──
-  const { scale: nameScale, glowBlur: nameGlow } = getNamePulse(f);
+  // ── Child's name — gold at top ──
   ctx.save();
-  ctx.translate(W / 2, NAME_Y);
-  if (nameScale !== 1) ctx.scale(nameScale, nameScale);
   ctx.font         = 'bold 36px Arial, sans-serif';
   ctx.textAlign    = 'center';
   ctx.textBaseline = 'middle';
   ctx.shadowColor  = GOLD;
-  ctx.shadowBlur   = nameGlow;
+  ctx.shadowBlur   = 14;
   ctx.shadowOffsetY = 2;
   ctx.fillStyle    = GOLD;
-  ctx.fillText(char.child_name, 0, 0);
+  ctx.fillText(char.child_name, W / 2, NAME_Y);
   ctx.restore();
 
   // ── Narration box with word-by-word reveal ──
@@ -476,7 +313,7 @@ function drawFrame(
   ctx.roundRect(BOX_X, BOX_Y, BOX_W, BOX_H, 14);
   ctx.fill();
   ctx.strokeStyle = `${GOLD_RGBA},0.28)`;
-  ctx.lineWidth = 1;
+  ctx.lineWidth   = 1;
   ctx.stroke();
 
   ctx.font         = '18px Arial, sans-serif';
@@ -486,28 +323,24 @@ function drawFrame(
   ctx.shadowBlur   = 4;
   ctx.shadowColor  = 'rgba(0,0,0,0.9)';
   ctx.shadowOffsetY = 1;
+
   const visibleText = getVisibleNarration(scene.narration, f);
-  const lines   = wrapText(ctx, visibleText, BOX_W - 28);
   const lineH   = 24;
+  const lines   = wrapText(ctx, visibleText, BOX_W - 28);
   const totalTH = lines.length * lineH;
   const textY   = BOX_Y + (BOX_H - 20 - totalTH) / 2;
   lines.forEach((line, i) => ctx.fillText(line, W / 2, textY + i * lineH));
   ctx.restore();
 
-  // ── Watermark ──
+  // ── Watermark + scene number ──
   ctx.save();
   ctx.font         = '10px Arial, sans-serif';
-  ctx.fillStyle    = `${GOLD_RGBA},0.42)`;
-  ctx.textAlign    = 'center';
   ctx.textBaseline = 'bottom';
-  ctx.fillText('✦ DreamStick Adventures', W / 2, BOX_Y + BOX_H - 5);
-  ctx.restore();
-
-  // ── Scene indicator ──
-  ctx.save();
-  ctx.font         = '10px Arial, sans-serif';
-  ctx.fillStyle    = 'rgba(255,215,0,0.32)';
-  ctx.textAlign    = 'right';
+  ctx.fillStyle    = `${GOLD_RGBA},0.40)`;
+  ctx.textAlign    = 'center';
+  ctx.fillText('✦ DreamStick Adventures', W / 2, BOX_Y + BOX_H - 4);
+  ctx.fillStyle = 'rgba(255,215,0,0.30)';
+  ctx.textAlign = 'right';
   ctx.textBaseline = 'top';
   ctx.fillText(`Scene ${scene.scene_number} of 6`, W - 12, 12);
   ctx.restore();
@@ -526,7 +359,7 @@ async function loadBg(theme: string, used: Set<number>): Promise<Image> {
   const available = [1, 2, 3].filter(n => !used.has(n));
   const pick      = available.length > 0
     ? available[Math.floor(Math.random() * available.length)]
-    : Math.floor(Math.random() * 3) + 1;
+    : (Math.floor(Math.random() * 3) + 1);
   used.add(pick);
   for (const n of [pick, 1, 2, 3]) {
     try { return await loadImage(path.join(dir, `bg${n}.png`)); } catch { /* next */ }
@@ -540,10 +373,10 @@ export async function renderVideo(char: RenderCharacter, story: RenderStory): Pr
   await fs.mkdir(VIDEOS_DIR, { recursive: true });
 
   const safeName = char.child_name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-  const ts       = Date.now();
-  const outPath  = path.join(VIDEOS_DIR, `${safeName}-${ts}.mp4`);
+  const outPath  = path.join(VIDEOS_DIR, `${safeName}-${Date.now()}.mp4`);
   const theme    = (char.theme ?? 'space').toLowerCase();
-  const gender: 'boy' | 'girl' = (char.gender ?? char.character_type) === 'girl' ? 'girl' : 'boy';
+  const gender: 'boy' | 'girl' =
+    ((char.gender ?? char.character_type) === 'girl') ? 'girl' : 'boy';
 
   const [poses, bgs] = await Promise.all([
     loadPoseSet(gender),
@@ -570,7 +403,7 @@ export async function renderVideo(char: RenderCharacter, story: RenderStory): Pr
   const done = new Promise<void>((resolve, reject) => {
     ff.on('close', (code: number) =>
       code === 0 ? resolve()
-        : reject(new Error(`ffmpeg exit ${code}: ${ffErrors.join('').slice(-800)}`))
+        : reject(new Error(`ffmpeg exit ${code}: ${ffErrors.join('').slice(-800)}`)),
     );
     ff.on('error', reject);
   });
@@ -597,20 +430,20 @@ export async function renderVideo(char: RenderCharacter, story: RenderStory): Pr
       for (let f = 0; f < FRAMES_PER_SCENE; f++) {
         let fadeAlpha = 0;
 
-        // Fade in from previous title card
+        // Fade in from title card
         if (si > 0 && f < FADE_FRAMES)
           fadeAlpha = 1 - f / FADE_FRAMES;
 
-        // Fade out to next title card (or final fade for last scene)
+        // Fade out to next title card
         if (!isLastScene && f >= FRAMES_PER_SCENE - FADE_FRAMES)
           fadeAlpha = (f - (FRAMES_PER_SCENE - FADE_FRAMES)) / FADE_FRAMES;
+
+        // Final scene fades to black over last 2 s
         if (isLastScene && f >= FRAMES_PER_SCENE - FADE_FRAMES * 3)
           fadeAlpha = (f - (FRAMES_PER_SCENE - FADE_FRAMES * 3)) / (FADE_FRAMES * 3);
 
         const pose = pickPose(mood, f, isLastScene, poses);
-        const anim = getMoodState(mood, f, FRAMES_PER_SCENE);
-
-        drawFrame(ctx, bg, char, scene, pose, anim, particles, f,
+        drawFrame(ctx, bg, char, scene, pose, particles, f,
                   Math.min(1, Math.max(0, fadeAlpha)));
         await writeFrame();
       }
