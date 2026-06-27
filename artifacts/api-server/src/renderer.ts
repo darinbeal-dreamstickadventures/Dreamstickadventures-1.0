@@ -24,10 +24,10 @@ const CHARACTERS_DIR = path.join(__rendererDirname, '..', '..', 'dreamstick', 'p
 
 // ── Layout (internal 540×960 px, everything doubles in the final 1080×1920 output) ──
 // All pose images share the same 0.558 aspect ratio (373×669 or 1536×2752)
-const CHAR_H = 300;                          // 600 px in final output
-const CHAR_W = Math.round(CHAR_H * 0.558);  // ≈ 167 px internal
+const CHAR_H = 450;                          // 900 px in final output
+const CHAR_W = Math.round(CHAR_H * 0.558);  // ≈ 251 px internal
 const CHAR_BOTTOM = 762;                     // just above narration box
-const CHAR_TOP = CHAR_BOTTOM - CHAR_H;      // ≈ 462
+const CHAR_TOP = CHAR_BOTTOM - CHAR_H;      // ≈ 312
 const CHAR_X = (W - CHAR_W) / 2;           // centered
 const CHAR_CX = W / 2;
 const CHAR_CY = CHAR_TOP + CHAR_H / 2;     // vertical center of character
