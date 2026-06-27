@@ -8,30 +8,40 @@ import { fileURLToPath } from 'url';
 const __rendererFilename = fileURLToPath(import.meta.url);
 const __rendererDirname = path.dirname(__rendererFilename);
 
-// Internal render resolution (540x960) → upscaled to 1080x1920 by ffmpeg
+// Internal render resolution — upscaled 2× to 1080×1920 by ffmpeg
 const W = 540;
 const H = 960;
 const OUT_W = 1080;
 const OUT_H = 1920;
 const FPS = 30;
-const FRAMES_PER_SCENE = 20 * FPS; // 600
-const FADE_FRAMES = 15;
+const FRAMES_PER_SCENE = 20 * FPS; // 600 frames = 20 seconds per scene
+const FADE_FRAMES = 30;             // 1-second fade out + 1-second fade in
 
 const VIDEOS_DIR = '/tmp/dreamstick-videos';
 const PUBLIC_VIDEOS_DIR = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'videos');
 const BACKGROUNDS_DIR = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'backgrounds');
-const POSES_DIR = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'poses');
+const CHARACTERS_DIR = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'characters');
 
-// All pose images share the same 0.558 aspect ratio
-// Rendered at POSE_W wide → POSE_H tall, bottom-aligned above narration box
-const POSE_W = 400;
-const POSE_H = Math.round(POSE_W / 0.558); // ≈ 717
-const POSE_X = (W - POSE_W) / 2; // 70 — centered
-const NARRATION_TOP = H - 189;
-const POSE_BOTTOM = NARRATION_TOP - 12;
-const POSE_TOP_BASE = POSE_BOTTOM - POSE_H; // ≈ 22
+// ── Layout (internal 540×960 px, everything doubles in the final 1080×1920 output) ──
+// All pose images share the same 0.558 aspect ratio (373×669 or 1536×2752)
+const CHAR_H = 300;                          // 600 px in final output
+const CHAR_W = Math.round(CHAR_H * 0.558);  // ≈ 167 px internal
+const CHAR_BOTTOM = 762;                     // just above narration box
+const CHAR_TOP = CHAR_BOTTOM - CHAR_H;      // ≈ 462
+const CHAR_X = (W - CHAR_W) / 2;           // centered
+const CHAR_CX = W / 2;
+const CHAR_CY = CHAR_TOP + CHAR_H / 2;     // vertical center of character
 
-const GOLD = '#FFD700';
+// Name label sits near the top of the canvas
+const NAME_Y = 52;
+const NAME_FONT = 'bold 36px Arial, sans-serif'; // → 72px in final
+const GOLD = '#f7e96b';
+
+// Narration box
+const BOX_Y = 772;
+const BOX_H = 170;
+const BOX_X = 18;
+const BOX_W = W - 36;
 
 const SIDEKICK_MAP: Record<string, string> = {
   dragon: '🐉', cat: '🐱', dog: '🐶', rabbit: '🐰',
@@ -44,6 +54,7 @@ export type Mood = 'excited' | 'curious' | 'brave' | 'triumphant' | 'peaceful' |
 export interface RenderCharacter {
   child_name: string;
   character_type?: string;
+  gender?: string;
   build?: string;
   hair_style?: string;
   hair_color?: string;
@@ -66,47 +77,42 @@ export interface RenderStory {
   scenes: RenderScene[];
 }
 
-// ── Pose images ───────────────────────────────────────────────────────────────
+// ── Pose set (7 poses needed: one per mood + asleep for last scene) ──────────
 
-interface PoseImages {
-  asleep: Image;
+interface PoseSet {
+  run: Image;
   curious: Image;
   heroic: Image;
-  peaceful: Image;
-  pointing: Image;
-  run: Image;
-  sneak: Image;
   triumph: Image;
-  walk: Image;
-  wave: Image;
-  wonder: Image;
+  peaceful: Image;
   yawning: Image;
+  asleep: Image;
 }
 
-async function loadPoses(prefix: 'boy' | 'girl'): Promise<PoseImages> {
-  const load = (name: string) => loadImage(path.join(POSES_DIR, `${prefix}-${name}.png`));
-  const [asleep, curious, heroic, peaceful, pointing, run, sneak, triumph, walk, wave, wonder, yawning] =
-    await Promise.all([
-      load('asleep'), load('curious'), load('heroic'), load('peaceful'),
-      load('pointing'), load('run'), load('sneak'), load('triumph'),
-      load('walk'), load('wave'), load('wonder'), load('yawning'),
-    ]);
-  return { asleep, curious, heroic, peaceful, pointing, run, sneak, triumph, walk, wave, wonder, yawning };
+async function loadPoseSet(gender: 'boy' | 'girl'): Promise<PoseSet> {
+  const dir = path.join(CHARACTERS_DIR, gender);
+  const load = (name: string) => loadImage(path.join(dir, `${name}.png`));
+  const [run, curious, heroic, triumph, peaceful, yawning, asleep] = await Promise.all([
+    load('run'), load('curious'), load('heroic'), load('triumph'),
+    load('peaceful'), load('yawning'), load('asleep'),
+  ]);
+  return { run, curious, heroic, triumph, peaceful, yawning, asleep };
 }
 
-// Map each mood to two poses — crossfade at scene midpoint
-function moodPoses(mood: Mood, p: PoseImages): [Image, Image | null] {
+// Map mood → pose. Last scene always uses asleep.
+function pickPose(mood: Mood, isLastScene: boolean, poses: PoseSet): Image {
+  if (isLastScene) return poses.asleep;
   switch (mood) {
-    case 'excited':    return [p.run, p.wave];
-    case 'curious':    return [p.wonder, p.curious];
-    case 'brave':      return [p.sneak, p.pointing];
-    case 'triumphant': return [p.triumph, null];
-    case 'peaceful':   return [p.walk, p.peaceful];
-    case 'sleepy':     return [p.yawning, p.asleep];
+    case 'excited':    return poses.run;
+    case 'curious':    return poses.curious;
+    case 'brave':      return poses.heroic;
+    case 'triumphant': return poses.triumph;
+    case 'peaceful':   return poses.peaceful;
+    case 'sleepy':     return poses.yawning;
   }
 }
 
-// ── Drawing helpers ───────────────────────────────────────────────────────────
+// ── Text helpers ─────────────────────────────────────────────────────────────
 
 function wrapText(ctx: SKRSContext2D, text: string, maxWidth: number): string[] {
   const words = text.split(' ');
@@ -125,16 +131,6 @@ function wrapText(ctx: SKRSContext2D, text: string, maxWidth: number): string[] 
   return lines;
 }
 
-// Draw a character pose image using screen blend mode so black bg disappears
-function drawPose(ctx: SKRSContext2D, img: Image, alpha: number, bobY: number): void {
-  if (alpha <= 0) return;
-  ctx.save();
-  ctx.globalAlpha = Math.min(1, Math.max(0, alpha));
-  ctx.globalCompositeOperation = 'screen';
-  ctx.drawImage(img, POSE_X, POSE_TOP_BASE + bobY, POSE_W, POSE_H);
-  ctx.restore();
-}
-
 // ── Frame renderer ────────────────────────────────────────────────────────────
 
 function drawFrame(
@@ -142,128 +138,110 @@ function drawFrame(
   bg: Image,
   char: RenderCharacter,
   scene: RenderScene,
-  poses: PoseImages,
-  frameInScene: number,
+  pose: Image,
+  bobY: number,
   fadeAlpha: number,
 ): void {
-  const t = frameInScene / FPS;
-  const mood = scene.mood as Mood;
+  // ── Background — scale and crop to fill 540×960 ──
+  const bgScale = Math.max(W / bg.width, H / bg.height);
+  const bw = bg.width * bgScale;
+  const bh = bg.height * bgScale;
+  ctx.drawImage(bg, (W - bw) / 2, (H - bh) / 2, bw, bh);
 
-  // ── Background ──
-  ctx.drawImage(bg, 0, 0, W, H);
-
-  // ── Vignette ──
+  // ── Vignette (darken edges) ──
   const vig = ctx.createRadialGradient(W / 2, H / 2, H * 0.28, W / 2, H / 2, H * 0.82);
   vig.addColorStop(0, 'rgba(0,0,0,0)');
-  vig.addColorStop(1, 'rgba(0,0,15,0.5)');
+  vig.addColorStop(1, 'rgba(0,0,10,0.55)');
   ctx.fillStyle = vig;
   ctx.fillRect(0, 0, W, H);
 
-  // ── Character bob animation ──
-  const bobAmt = mood === 'triumphant' ? 14 : mood === 'excited' ? 9 : mood === 'sleepy' ? 2 : 5;
-  const bobSpeed = mood === 'triumphant' ? 2.8 : mood === 'excited' ? 3.5 : mood === 'sleepy' ? 0.4 : 1.2;
-  const bobY = Math.sin(t * Math.PI * bobSpeed) * bobAmt;
-
-  // ── Pose crossfade ──
-  const [img1, img2] = moodPoses(mood, poses);
-  const CROSSFADE_START = FRAMES_PER_SCENE / 2; // 10 s
-  const CROSSFADE_DUR = 60; // 2 s
-  let blend = 0;
-  if (img2 && frameInScene >= CROSSFADE_START) {
-    blend = Math.min(1, (frameInScene - CROSSFADE_START) / CROSSFADE_DUR);
-  }
-
-  // Subtle golden glow behind character
-  const glowCol = (char.glow_color ?? GOLD).replace('#', '');
-  const gr = parseInt(glowCol.slice(0, 2), 16);
-  const gg = parseInt(glowCol.slice(2, 4), 16);
-  const gb = parseInt(glowCol.slice(4, 6), 16);
-  const charCY = POSE_TOP_BASE + POSE_H * 0.5 + bobY;
-  const glow = ctx.createRadialGradient(W / 2, charCY, 20, W / 2, charCY, 220);
-  glow.addColorStop(0, `rgba(${gr},${gg},${gb},0.18)`);
+  // ── Soft radial golden glow behind character ──
+  const glowHex = (char.glow_color ?? GOLD).replace('#', '');
+  const gr = parseInt(glowHex.slice(0, 2), 16);
+  const gg = parseInt(glowHex.slice(2, 4), 16);
+  const gb = parseInt(glowHex.slice(4, 6), 16);
+  const charCY = CHAR_CY + bobY;
+  const glow = ctx.createRadialGradient(CHAR_CX, charCY, 10, CHAR_CX, charCY, 210);
+  glow.addColorStop(0, `rgba(${gr},${gg},${gb},0.26)`);
   glow.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, W, H);
 
-  // ── Draw pose(s) ──
-  if (img2 && blend > 0) {
-    drawPose(ctx, img1, 1 - blend, bobY);
-    drawPose(ctx, img2, blend, bobY);
-  } else {
-    drawPose(ctx, img1, 1, bobY);
-  }
-
-  // ── Child name label (above character head, ~13% from image top) ──
-  const nameY = POSE_TOP_BASE + POSE_H * 0.11 + bobY;
+  // ── Character pose (screen blend — black bg disappears, golden glow composites) ──
   ctx.save();
-  ctx.font = 'bold 30px Arial, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  // Subtle backing pill
-  const nameMeasure = ctx.measureText(char.child_name);
-  const nw = nameMeasure.width + 28;
-  const nh = 36;
-  ctx.fillStyle = 'rgba(0,0,12,0.55)';
-  ctx.beginPath();
-  ctx.roundRect(W / 2 - nw / 2, nameY - nh / 2, nw, nh, 18);
-  ctx.fill();
-  ctx.shadowBlur = 14;
-  ctx.shadowColor = GOLD;
-  ctx.fillStyle = GOLD;
-  ctx.fillText(char.child_name, W / 2, nameY);
+  ctx.globalCompositeOperation = 'screen';
+  ctx.drawImage(pose, CHAR_X, CHAR_TOP + bobY, CHAR_W, CHAR_H);
   ctx.restore();
 
-  // ── Sidekick emoji ──
+  // ── Sidekick emoji (floats beside character) ──
   const sk = (char.sidekick ?? '').toLowerCase();
   if (sk && sk !== 'none') {
     const emoji = SIDEKICK_MAP[sk] ?? '✨';
-    const skX = POSE_X + POSE_W + 18 + Math.sin(t * Math.PI * 1.1) * 6;
-    const skY = POSE_TOP_BASE + POSE_H * 0.28 + bobY + Math.sin(t * Math.PI * 1.4) * 8;
+    const t = Date.now() / 1000; // wall-clock for smooth float (fine for non-deterministic)
+    const skX = CHAR_X + CHAR_W + 22 + Math.sin(t * 1.3) * 5;
+    const skY = CHAR_TOP + CHAR_H * 0.3 + bobY + Math.sin(t * 1.7) * 7;
     ctx.save();
-    ctx.font = '42px serif';
+    ctx.font = '34px serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(emoji, skX, skY);
     ctx.restore();
   }
 
-  // ── Narration box ──
-  const boxX = 18;
-  const boxY = NARRATION_TOP;
-  const boxW = W - 36;
-  const boxH = 172;
-  const pad = 16;
-  const r = 14;
-
+  // ── Child's name — large gold text at top of screen ──
   ctx.save();
-  ctx.fillStyle = 'rgba(0,0,14,0.70)';
+  ctx.font = NAME_FONT;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  // Dark shadow for readability
+  ctx.shadowColor = 'rgba(0,0,0,0.85)';
+  ctx.shadowBlur = 12;
+  ctx.shadowOffsetY = 3;
+  ctx.fillStyle = GOLD;
+  ctx.fillText(char.child_name, W / 2, NAME_Y);
+  ctx.restore();
+
+  // ── Narration box — semi-transparent dark rounded rect at bottom ──
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,12,0.72)';
   ctx.beginPath();
-  ctx.roundRect(boxX, boxY, boxW, boxH, r);
+  ctx.roundRect(BOX_X, BOX_Y, BOX_W, BOX_H, 14);
   ctx.fill();
-  ctx.strokeStyle = 'rgba(255,215,0,0.40)';
+  ctx.strokeStyle = 'rgba(247,233,107,0.30)';
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  ctx.font = '20px Arial, sans-serif';
-  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  // Narration text
+  ctx.font = '18px Arial, sans-serif'; // → 36px in final
+  ctx.fillStyle = 'rgba(255,255,255,0.96)';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  ctx.shadowBlur = 3;
-  ctx.shadowColor = 'rgba(0,0,0,0.8)';
-  const lines = wrapText(ctx, scene.narration, boxW - pad * 2);
-  const lineH = 26;
-  const totalH = lines.length * lineH;
-  const ty = boxY + (boxH - totalH) / 2;
-  lines.forEach((line, i) => ctx.fillText(line, W / 2, ty + i * lineH));
+  ctx.shadowBlur = 4;
+  ctx.shadowColor = 'rgba(0,0,0,0.9)';
+  ctx.shadowOffsetY = 1;
+  const lines = wrapText(ctx, scene.narration, BOX_W - 28);
+  const lineH = 24;
+  const totalTextH = lines.length * lineH;
+  const textStartY = BOX_Y + (BOX_H - 20 - totalTextH) / 2; // leave 20px at bottom for watermark
+  lines.forEach((line, i) => ctx.fillText(line, W / 2, textStartY + i * lineH));
   ctx.restore();
 
-  // ── Scene title (small, top-right corner) ──
+  // ── DreamStick Adventures watermark ──
   ctx.save();
-  ctx.font = '13px Arial, sans-serif';
-  ctx.fillStyle = 'rgba(255,215,0,0.5)';
+  ctx.font = '10px Arial, sans-serif'; // → 20px in final
+  ctx.fillStyle = 'rgba(247,233,107,0.45)';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('✦ DreamStick Adventures', W / 2, BOX_Y + BOX_H - 5);
+  ctx.restore();
+
+  // ── Scene indicator (top-right, subtle) ──
+  ctx.save();
+  ctx.font = '10px Arial, sans-serif';
+  ctx.fillStyle = 'rgba(255,215,0,0.35)';
   ctx.textAlign = 'right';
   ctx.textBaseline = 'top';
-  ctx.fillText(`Scene ${scene.scene_number} of 6`, W - 14, 14);
+  ctx.fillText(`Scene ${scene.scene_number} of 6`, W - 12, 12);
   ctx.restore();
 
   // ── Fade overlay ──
@@ -298,23 +276,22 @@ export async function renderVideo(char: RenderCharacter, story: RenderStory): Pr
   const ts = Date.now();
   const outPath = path.join(VIDEOS_DIR, `${safeName}-${ts}.mp4`);
   const theme = (char.theme ?? 'space').toLowerCase();
-
-  const posePrefix: 'boy' | 'girl' = char.character_type === 'girl' ? 'girl' : 'boy';
+  const gender: 'boy' | 'girl' = (char.gender ?? char.character_type) === 'girl' ? 'girl' : 'boy';
 
   // Load poses and backgrounds in parallel
   const [poses, bgs] = await Promise.all([
-    loadPoses(posePrefix),
+    loadPoseSet(gender),
     (async () => {
       const used = new Set<number>();
-      const result: Image[] = [];
+      const imgs: Image[] = [];
       for (let i = 0; i < story.scenes.length; i++) {
-        result.push(await loadBg(theme, used));
+        imgs.push(await loadBg(theme, used));
       }
-      return result;
+      return imgs;
     })(),
   ]);
 
-  // Spawn ffmpeg: raw RGBA stdin → H.264 1080x1920 MP4
+  // Spawn ffmpeg: raw RGBA stdin → H.264 1080×1920 MP4
   const ff = spawn('ffmpeg', [
     '-y',
     '-f', 'rawvideo',
@@ -344,25 +321,40 @@ export async function renderVideo(char: RenderCharacter, story: RenderStory): Pr
 
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
+  const totalScenes = story.scenes.length;
 
   try {
-    for (let si = 0; si < story.scenes.length; si++) {
+    for (let si = 0; si < totalScenes; si++) {
       const scene = story.scenes[si];
       const bg = bgs[si];
+      const isLastScene = si === totalScenes - 1;
+      const mood = scene.mood as Mood;
+      const pose = pickPose(mood, isLastScene, poses);
+
+      // Bob parameters per mood
+      const bobAmt = mood === 'triumphant' ? 12 : mood === 'excited' ? 8 : mood === 'sleepy' ? 2 : 5;
+      const bobSpd = mood === 'triumphant' ? 3.0 : mood === 'excited' ? 3.5 : mood === 'sleepy' ? 0.4 : 1.2;
 
       for (let f = 0; f < FRAMES_PER_SCENE; f++) {
+        const t = f / FPS;
+
+        // 1-second (30-frame) fade out at end of each scene (except last, which fades longer)
+        // 1-second (30-frame) fade in at start of each scene (except first)
         let fadeAlpha = 0;
         if (si > 0 && f < FADE_FRAMES) {
           fadeAlpha = 1 - f / FADE_FRAMES;
         }
-        if (si < story.scenes.length - 1 && f >= FRAMES_PER_SCENE - FADE_FRAMES) {
+        if (si < totalScenes - 1 && f >= FRAMES_PER_SCENE - FADE_FRAMES) {
           fadeAlpha = (f - (FRAMES_PER_SCENE - FADE_FRAMES)) / FADE_FRAMES;
         }
-        if (si === story.scenes.length - 1 && f >= FRAMES_PER_SCENE - FADE_FRAMES * 3) {
+        // Final scene fades to black over 3 seconds
+        if (isLastScene && f >= FRAMES_PER_SCENE - FADE_FRAMES * 3) {
           fadeAlpha = (f - (FRAMES_PER_SCENE - FADE_FRAMES * 3)) / (FADE_FRAMES * 3);
         }
 
-        drawFrame(ctx, bg, char, scene, poses, f, Math.min(1, Math.max(0, fadeAlpha)));
+        const bobY = Math.sin(t * Math.PI * bobSpd) * bobAmt;
+
+        drawFrame(ctx, bg, char, scene, pose, bobY, Math.min(1, Math.max(0, fadeAlpha)));
 
         const raw = Buffer.from(ctx.getImageData(0, 0, W, H).data.buffer);
         const ok = ff.stdin.write(raw);

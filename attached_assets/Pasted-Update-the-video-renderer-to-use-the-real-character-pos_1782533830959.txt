@@ -1,0 +1,29 @@
+Update the video renderer to use the real character pose images and background images instead of the code drawn stick figure. Here's exactly how it should work:
+
+Canvas size is 1080x1920 pixels at 30fps in 9:16 vertical format for mobile
+For each of the 6 scenes load a background image from the correct theme folder. The backgrounds are stored at /backgrounds/[theme]/bg1.png, bg2.png, bg3.png — pick one randomly per scene. Scale and crop the background to fill the full 1080x1920 canvas.
+Map each scene mood to the correct character pose file:
+
+
+excited = run.png
+curious = curious.png
+brave = heroic.png
+triumphant = triumph.png
+peaceful = peaceful.png
+sleepy = yawning.png
+last scene always = asleep.png
+
+
+Load the pose image from /characters/boy/ or /characters/girl/ depending on the gender field in the character data. Default to boy if gender is not set.
+Place the character image centered horizontally in the lower third of the frame — roughly centered at x=540 y=1300 in a 1080x1920 canvas. Scale the character to roughly 600px tall so it fills the lower portion of the screen nicely.
+Add a soft radial golden glow effect behind the character using a semi transparent golden gradient centered on the character position.
+Draw the child's name in large gold text at the top of the screen — centered, Fredoka One or bold Arial font, font size 72px, color #f7e96b with a subtle dark shadow behind it for readability.
+Draw the scene narration text at the bottom in a semi transparent dark rounded rectangle. White text, font size 36px, centered, wrapping to multiple lines if needed. Leave enough padding so text is readable.
+Add a small DreamStick Adventures watermark at the very bottom in small gold text.
+Between each scene add a 1 second fade to black transition — 30 frames fading out then 30 frames fading in.
+After rendering all frames use ffmpeg to stitch everything into a single MP4 file with H264 encoding.
+Add the gender field to the characters database table if it does not already exist — default value of boy.
+Update the character builder form to include a gender selection — Boy or Girl — that saves to the database.
+Run a test render for Kevin, age 7, boy, space theme, dragon sidekick and report the job ID so I can check the status.
+
+Please install any additional packages needed like canvas or sharp for image compositing.
