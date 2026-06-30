@@ -8,6 +8,7 @@ import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { renderVideo } from './renderer.js';
+import { generateStoryAudio, generateSceneAudio } from './narration.js';
 
 // Prevent EPIPE / unhandled async rejection from crashing the server
 process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
@@ -289,16 +290,34 @@ setInterval(() => {
   }
 }, 15 * 60 * 1000);
 
+const NARRATION_ENABLED =
+  !!process.env.ELEVENLABS_API_KEY && !!process.env.ELEVENLABS_VOICE_ID;
+
 async function runRenderJob(job: RenderJob, char: Character): Promise<void> {
+  let audioPath: string | undefined;
   try {
     job.status = 'generating';
     console.log(`[job:${job.id}] Generating story for ${char.child_name}...`);
     const story = await generateStory(char);
     job.story = story;
 
+    // ── Narration (optional — skipped if keys not configured) ──────────────
+    if (NARRATION_ENABLED) {
+      console.log(`[job:${job.id}] Generating ElevenLabs narration...`);
+      try {
+        audioPath = await generateStoryAudio(story.scenes);
+        console.log(`[job:${job.id}] Narration ready → ${audioPath}`);
+      } catch (audioErr: any) {
+        console.error(`[job:${job.id}] Narration failed (continuing without audio):`, audioErr.message);
+        audioPath = undefined;
+      }
+    } else {
+      console.log(`[job:${job.id}] Skipping narration (ELEVENLABS keys not set)`);
+    }
+
     job.status = 'rendering';
     console.log(`[job:${job.id}] Rendering ${story.scenes.length} scenes × 30fps...`);
-    const filePath = await renderVideo(char, story);
+    const filePath = await renderVideo(char, story, audioPath);
     const filename = path.basename(filePath);
 
     job.url = `/api/videos/${filename}`;
@@ -308,6 +327,12 @@ async function runRenderJob(job: RenderJob, char: Character): Promise<void> {
     job.status = 'error';
     job.error = e.message;
     console.error(`[job:${job.id}] Failed:`, e.message);
+  } finally {
+    // Clean up narration temp file
+    if (audioPath) {
+      const fs2 = await import('fs/promises');
+      await fs2.unlink(audioPath).catch(() => {});
+    }
   }
 }
 
@@ -432,6 +457,50 @@ app.get('/api/videos/:filename', async (req, res): Promise<void> => {
     res.sendFile(filePath);
   } catch {
     res.status(404).json({ error: 'Video not found' });
+  }
+});
+
+// ── Test narration (audio only, no video render) ──────────────────────────────
+
+app.get('/api/test-narration', async (_req, res): Promise<void> => {
+  if (!process.env.ELEVENLABS_API_KEY || !process.env.ELEVENLABS_VOICE_ID) {
+    res.status(503).json({
+      error: 'ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID must both be set',
+    });
+    return;
+  }
+
+  const testChar: Character = {
+    child_name: 'Kevin',
+    child_age:  6,
+    sidekick:   'dragon',
+    theme:      'space',
+  };
+
+  try {
+    console.log('[test-narration] Generating story…');
+    const story = await generateStory(testChar);
+
+    console.log('[test-narration] Generating narration for all scenes…');
+    const audioPath = await generateStoryAudio(story.scenes);
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Disposition', 'attachment; filename="kevin-narration.mp3"');
+
+    const { createReadStream } = await import('fs');
+    const stream = createReadStream(audioPath);
+    stream.pipe(res);
+    stream.on('end', async () => {
+      await fs.unlink(audioPath).catch(() => {});
+    });
+    stream.on('error', async (err) => {
+      console.error('[test-narration] stream error:', err.message);
+      await fs.unlink(audioPath).catch(() => {});
+      if (!res.headersSent) res.status(500).json({ error: err.message });
+    });
+  } catch (e: any) {
+    console.error('[test-narration] error:', e.message);
+    if (!res.headersSent) res.status(500).json({ error: e.message });
   }
 });
 

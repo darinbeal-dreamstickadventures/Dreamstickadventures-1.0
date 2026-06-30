@@ -367,9 +367,38 @@ async function loadBg(theme: string, used: Set<number>): Promise<Image> {
   throw new Error(`No backgrounds for theme "${theme}" in ${dir}`);
 }
 
+// ── Merge audio into video ────────────────────────────────────────────────────
+
+async function mergeAudio(videoPath: string, audioPath: string, outPath: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const proc = spawn('ffmpeg', [
+      '-y',
+      '-i', videoPath,
+      '-i', audioPath,
+      '-c:v', 'copy',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-movflags', '+faststart',
+      outPath,
+    ]);
+    const err: string[] = [];
+    proc.stderr.on('data', (d: Buffer) => err.push(d.toString()));
+    proc.on('close', (code: number) =>
+      code === 0
+        ? resolve()
+        : reject(new Error(`ffmpeg audio-merge exit ${code}: ${err.join('').slice(-600)}`)),
+    );
+    proc.on('error', reject);
+  });
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
-export async function renderVideo(char: RenderCharacter, story: RenderStory): Promise<string> {
+export async function renderVideo(
+  char: RenderCharacter,
+  story: RenderStory,
+  audioPath?: string,
+): Promise<string> {
   await fs.mkdir(VIDEOS_DIR, { recursive: true });
 
   const safeName = char.child_name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
@@ -463,10 +492,20 @@ export async function renderVideo(char: RenderCharacter, story: RenderStory): Pr
 
   await done;
 
+  // ── Merge narration audio if provided ────────────────────────────────────
+  let finalPath = outPath;
+  if (audioPath) {
+    finalPath = outPath.replace(/\.mp4$/, '-narrated.mp4');
+    console.log('[renderer] Merging narration audio…');
+    await mergeAudio(outPath, audioPath, finalPath);
+    await fs.unlink(outPath).catch(() => {});
+    console.log('[renderer] Audio merged → ' + finalPath);
+  }
+
   try {
     await fs.mkdir(PUBLIC_VIDEOS_DIR, { recursive: true });
-    await fs.copyFile(outPath, path.join(PUBLIC_VIDEOS_DIR, path.basename(outPath)));
+    await fs.copyFile(finalPath, path.join(PUBLIC_VIDEOS_DIR, path.basename(finalPath)));
   } catch { /* non-fatal */ }
 
-  return outPath;
+  return finalPath;
 }
