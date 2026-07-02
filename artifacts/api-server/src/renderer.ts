@@ -18,9 +18,13 @@ const FADE_FRAMES       = 20;        // 0.67 s fade each side
 const TITLE_CARD_FRAMES = 20;        // title card between scenes
 
 const VIDEOS_DIR        = '/tmp/dreamstick-videos';
+const BG_FRAMES_DIR     = '/tmp/dreamstick-bg-frames';
 const PUBLIC_VIDEOS_DIR = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'videos');
 const BACKGROUNDS_DIR   = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'backgrounds');
 const CHARACTERS_DIR    = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'characters');
+
+// 15 s clip covers 450 frames; the remaining 150 frames freeze the last frame
+const BG_CLIP_FREEZE_FRAME = 450; // = 15 s × 30 fps
 
 // Character layout — internal canvas is 540×960; ffmpeg upscales 2× to 1080×1920
 const CHAR_H        = 450;                         // 900 px in final output
@@ -352,19 +356,86 @@ function drawFrame(
   }
 }
 
+// ── Background source (MP4 clip or static PNG) ───────────────────────────────
+
+type BgSource =
+  | { kind: 'image'; image: Image }
+  | { kind: 'video'; framesDir: string; frameCount: number; _idx: number; _img: Image | null };
+
+/**
+ * Extract frames from a ~15 s MP4 clip into JPEG files at the internal
+ * render resolution (540×960). Returns the number of frames extracted.
+ */
+async function extractBgFrames(videoPath: string, outDir: string): Promise<number> {
+  await fs.mkdir(outDir, { recursive: true });
+  await new Promise<void>((resolve, reject) => {
+    const proc = spawn('ffmpeg', [
+      '-i', videoPath,
+      '-vf', `scale=${W}:${H}:flags=lanczos,fps=${FPS}`,
+      '-q:v', '4',           // JPEG quality (1=best, 31=worst; 4 ≈ 85%)
+      '-y',
+      path.join(outDir, 'frame%05d.jpg'),
+    ]);
+    const err: string[] = [];
+    proc.stderr.on('data', (d: Buffer) => err.push(d.toString()));
+    proc.on('close', (code: number) =>
+      code === 0 ? resolve()
+        : reject(new Error(`ffmpeg frame-extract exit ${code}: ${err.join('').slice(-600)}`)),
+    );
+    proc.on('error', reject);
+  });
+  const files = await fs.readdir(outDir);
+  return files.filter(f => f.endsWith('.jpg')).length;
+}
+
+/**
+ * Get the canvas Image for a given scene-frame index.
+ * Frames 0 → frameCount-1: the actual clip frame.
+ * Frames frameCount → end:  the last clip frame (freeze).
+ * Uses a single-slot cache since we always advance sequentially.
+ */
+async function getBgImage(src: BgSource, f: number): Promise<Image> {
+  if (src.kind === 'image') return src.image;
+  const idx = Math.min(f, src.frameCount - 1);
+  if (src._idx === idx && src._img) return src._img;
+  src._img = await loadImage(
+    path.join(src.framesDir, `frame${String(idx + 1).padStart(5, '0')}.jpg`),
+  );
+  src._idx = idx;
+  return src._img;
+}
+
 // ── Background loader ─────────────────────────────────────────────────────────
 
-async function loadBg(theme: string, used: Set<number>): Promise<Image> {
+async function loadBg(theme: string, used: Set<number>): Promise<BgSource> {
   const dir       = path.join(BACKGROUNDS_DIR, theme.toLowerCase());
   const available = [1, 2, 3].filter(n => !used.has(n));
   const pick      = available.length > 0
     ? available[Math.floor(Math.random() * available.length)]
     : (Math.floor(Math.random() * 3) + 1);
   used.add(pick);
+
+  // Try MP4 clip first (preferred: ~15 s looping clip)
   for (const n of [pick, 1, 2, 3]) {
-    try { return await loadImage(path.join(dir, `bg${n}.png`)); } catch { /* next */ }
+    const mp4 = path.join(dir, `bg${n}.mp4`);
+    try {
+      await fs.access(mp4);
+      const outDir = path.join(BG_FRAMES_DIR, `${theme}-bg${n}-${Date.now()}`);
+      console.log(`[renderer] Extracting bg frames: ${mp4}`);
+      const frameCount = await extractBgFrames(mp4, outDir);
+      console.log(`[renderer] Extracted ${frameCount} bg frames`);
+      return { kind: 'video', framesDir: outDir, frameCount, _idx: -1, _img: null };
+    } catch { /* not found or extraction failed — try next */ }
   }
-  throw new Error(`No backgrounds for theme "${theme}" in ${dir}`);
+
+  // Fall back to static PNG
+  for (const n of [pick, 1, 2, 3]) {
+    try {
+      return { kind: 'image', image: await loadImage(path.join(dir, `bg${n}.png`)) };
+    } catch { /* next */ }
+  }
+
+  throw new Error(`No background assets for theme "${theme}" in ${dir}`);
 }
 
 // ── Merge audio into video ────────────────────────────────────────────────────
@@ -411,10 +482,10 @@ export async function renderVideo(
     loadPoseSet(gender),
     (async () => {
       const used = new Set<number>();
-      const imgs: Image[] = [];
+      const srcs: BgSource[] = [];
       for (let i = 0; i < story.scenes.length; i++)
-        imgs.push(await loadBg(theme, used));
-      return imgs;
+        srcs.push(await loadBg(theme, used));
+      return srcs;
     })(),
   ]);
 
@@ -447,10 +518,14 @@ export async function renderVideo(
     if (!ok) await new Promise<void>(r => ff.stdin.once('drain', r));
   };
 
+  const tempDirs: string[] = bgs
+    .filter((b): b is Extract<BgSource, { kind: 'video' }> => b.kind === 'video')
+    .map(b => b.framesDir);
+
   try {
     for (let si = 0; si < totalScenes; si++) {
       const scene       = story.scenes[si];
-      const bg          = bgs[si];
+      const bgSrc       = bgs[si];
       const isLastScene = si === totalScenes - 1;
       const mood        = scene.mood as Mood;
       const particles   = createParticles(si);
@@ -471,8 +546,10 @@ export async function renderVideo(
         if (isLastScene && f >= FRAMES_PER_SCENE - FADE_FRAMES * 3)
           fadeAlpha = (f - (FRAMES_PER_SCENE - FADE_FRAMES * 3)) / (FADE_FRAMES * 3);
 
-        const pose = pickPose(mood, f, isLastScene, poses);
-        drawFrame(ctx, bg, char, scene, pose, particles, f,
+        // For video bg: frames 0-449 play the clip; frames 450-599 freeze last frame
+        const bgImage = await getBgImage(bgSrc, Math.min(f, BG_CLIP_FREEZE_FRAME - 1));
+        const pose    = pickPose(mood, f, isLastScene, poses);
+        drawFrame(ctx, bgImage, char, scene, pose, particles, f,
                   Math.min(1, Math.max(0, fadeAlpha)));
         await writeFrame();
       }
@@ -480,14 +557,21 @@ export async function renderVideo(
       // ── Title card between scenes ─────────────────────────────────────────
       if (!isLastScene) {
         const nextScene = story.scenes[si + 1];
+        // Use the last bg frame for the title card black overlay
+        const bgImage = await getBgImage(bgSrc, BG_CLIP_FREEZE_FRAME - 1);
         for (let f = 0; f < TITLE_CARD_FRAMES; f++) {
           drawTitleCard(ctx, nextScene, f);
           await writeFrame();
         }
+        void bgImage; // suppress unused warning
       }
     }
   } finally {
     ff.stdin.end();
+    // Clean up extracted bg frame directories (non-fatal)
+    await Promise.allSettled(
+      tempDirs.map(d => fs.rm(d, { recursive: true, force: true })),
+    );
   }
 
   await done;
