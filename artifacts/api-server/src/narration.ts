@@ -73,6 +73,24 @@ async function concat(inputPaths: string[], outPath: string): Promise<void> {
   ]);
 }
 
+/** Run async tasks with a max concurrency limit, preserving result order. */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -135,10 +153,11 @@ export async function generateStoryAudio(
   await fs.mkdir(AUDIO_DIR, { recursive: true });
   const ts = Date.now();
 
-  // 1. Generate all scene audio in parallel
+  // 1. Generate scene audio with limited concurrency (ElevenLabs caps
+  //    concurrent requests per plan — 3 is safe even on lower tiers)
   console.log('[narration] Generating audio for all scenes via ElevenLabs…');
-  const rawPaths = await Promise.all(
-    scenes.map((s, i) => generateSceneAudio(s.narration, i)),
+  const rawPaths = await mapWithConcurrency(
+    scenes, 3, (s, i) => generateSceneAudio(s.narration, i),
   );
 
   // 2. Pad / trim each scene to exactly SCENE_DURATION_SEC
