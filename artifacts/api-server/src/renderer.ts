@@ -1,4 +1,4 @@
-import { createCanvas, loadImage } from '@napi-rs/canvas';
+import { createCanvas, loadImage, GlobalFonts } from '@napi-rs/canvas';
 import type { Image, SKRSContext2D } from '@napi-rs/canvas';
 import { spawn } from 'child_process';
 import path from 'path';
@@ -8,13 +8,31 @@ import { fileURLToPath } from 'url';
 const __rendererFilename = fileURLToPath(import.meta.url);
 const __rendererDirname  = path.dirname(__rendererFilename);
 
+/**
+ * The base OS image has no emoji-capable fonts installed (only DejaVu), so
+ * sidekick emoji were silently rendering as blank "tofu" glyphs. OpenMoji
+ * Black is a monochrome outline emoji font (glyf-based, not a COLR/CBDT
+ * color font), which @napi-rs/canvas can rasterize reliably — registered
+ * directly from its Nix store path since fontconfig hasn't indexed
+ * newly-added Nix packages without a full container rebuild.
+ */
+const EMOJI_FONT_FAMILY = 'OpenMoji';
+try {
+  GlobalFonts.registerFromPath(
+    '/nix/store/bryizcnj2q42wxjw7sm85z8jncckgvs1-openmoji-15.1.0/share/fonts/truetype/OpenMoji-black-glyf.ttf',
+    EMOJI_FONT_FAMILY,
+  );
+} catch (e) {
+  console.error('[renderer] Failed to register emoji font, sidekick emoji may not render:', e);
+}
+
 const W   = 540;
 const H   = 960;
 const OUT_W = 1080;
 const OUT_H = 1920;
 const FPS = 30;
 const FRAMES_PER_SCENE  = 20 * FPS; // 600 frames = 20 s
-const FADE_FRAMES       = 20;        // 0.67 s fade each side
+const FADE_FRAMES       = 30;        // 1 s fade each side (scene-to-scene fade to black)
 const TITLE_CARD_FRAMES = 20;        // title card between scenes
 
 const VIDEOS_DIR        = '/tmp/dreamstick-videos';
@@ -126,14 +144,56 @@ async function extractVideoFramesLimited(
   }
 }
 
-/** Load a single pose — prefers an animated MP4 clip, falls back to a static PNG. */
+/**
+ * Extract frames from a character pose clip, keying out the black backdrop
+ * via ffmpeg's `colorkey` filter (color=black similarity=0.3 blend=0.1) so
+ * the frames come out as true RGBA PNGs with a transparent background —
+ * composited onto the scene with normal alpha blending instead of relying
+ * on a 'screen' blend-mode approximation. colorkey runs *before* the lanczos
+ * scale so the key isn't fighting scaling-interpolation artifacts at edges.
+ */
+async function extractPoseFramesKeyed(
+  videoPath: string, outDir: string, w: number, h: number,
+): Promise<number> {
+  await fs.mkdir(outDir, { recursive: true });
+  await new Promise<void>((resolve, reject) => {
+    const proc = spawn('ffmpeg', [
+      '-i', videoPath,
+      '-vf', `colorkey=black:0.3:0.1,scale=${w}:${h}:flags=lanczos,fps=${FPS},format=rgba`,
+      '-y',
+      path.join(outDir, 'frame%05d.png'),
+    ]);
+    const err: string[] = [];
+    proc.stderr.on('data', (d: Buffer) => err.push(d.toString()));
+    proc.on('close', (code: number) =>
+      code === 0 ? resolve()
+        : reject(new Error(`ffmpeg colorkey extract exit ${code}: ${err.join('').slice(-600)}`)),
+    );
+    proc.on('error', reject);
+  });
+  const files = await fs.readdir(outDir);
+  return files.filter(f => f.endsWith('.png')).length;
+}
+
+async function extractPoseFramesKeyedLimited(
+  videoPath: string, outDir: string, w: number, h: number,
+): Promise<number> {
+  await acquireExtractionSlot();
+  try {
+    return await extractPoseFramesKeyed(videoPath, outDir, w, h);
+  } finally {
+    releaseExtractionSlot();
+  }
+}
+
+/** Load a single pose — prefers an animated MP4 clip (colorkeyed), falls back to a static PNG. */
 async function loadPose(dir: string, name: string): Promise<PoseSource> {
   const mp4 = path.join(dir, `${name}.mp4`);
   try {
     await fs.access(mp4);
     const outDir = path.join(POSE_FRAMES_DIR, `${path.basename(dir)}-${name}-${Date.now()}`);
-    console.log(`[renderer] Extracting pose frames: ${mp4}`);
-    const frameCount = await extractVideoFramesLimited(mp4, outDir, CHAR_W, CHAR_H);
+    console.log(`[renderer] Extracting pose frames (colorkeyed): ${mp4}`);
+    const frameCount = await extractPoseFramesKeyedLimited(mp4, outDir, CHAR_W, CHAR_H);
     console.log(`[renderer] Extracted ${frameCount} pose frames for "${name}"`);
     return { kind: 'video', framesDir: outDir, frameCount, _idx: -1, _img: null };
   } catch { /* no clip — fall back to PNG */ }
@@ -173,7 +233,7 @@ async function getPoseImage(src: PoseSource, localFrame: number): Promise<Image>
   const idx = localFrame % src.frameCount;
   if (src._idx === idx && src._img) return src._img;
   src._img = await loadImage(
-    path.join(src.framesDir, `frame${String(idx + 1).padStart(5, '0')}.jpg`),
+    path.join(src.framesDir, `frame${String(idx + 1).padStart(5, '0')}.png`),
   );
   src._idx = idx;
   return src._img;
@@ -349,9 +409,8 @@ function drawFrame(
   // ── Particles (behind character) ──
   drawParticles(ctx, particles, f);
 
-  // ── Character pose — centred, screen-blended ──
+  // ── Character pose — centred, real alpha transparency (colorkeyed PNG frames) ──
   ctx.save();
-  ctx.globalCompositeOperation = 'screen';
   ctx.drawImage(pose, CHAR_CX - CHAR_W / 2, CHAR_TOP, CHAR_W, CHAR_H);
   ctx.restore();
 
@@ -362,7 +421,8 @@ function drawFrame(
     const skX    = Math.min(W - 28, CHAR_CX + CHAR_W / 2 + 32);
     const skY    = CHAR_CY - CHAR_H * 0.18 + Math.sin(f / FPS * 2.3) * 8;
     ctx.save();
-    ctx.font = '34px serif';
+    ctx.font = `34px ${EMOJI_FONT_FAMILY}`;
+    ctx.fillStyle    = GOLD;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(emoji, skX, skY);
