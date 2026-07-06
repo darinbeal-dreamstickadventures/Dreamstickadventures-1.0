@@ -1,5 +1,5 @@
 import { createCanvas, loadImage, GlobalFonts } from '@napi-rs/canvas';
-import type { Image, SKRSContext2D } from '@napi-rs/canvas';
+import type { Canvas, Image, SKRSContext2D } from '@napi-rs/canvas';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
@@ -62,6 +62,28 @@ const BOX_H = 170;
 const NAME_Y    = 52;
 const GOLD      = '#f7e96b';
 const GOLD_RGBA = 'rgba(247,233,107';
+
+/**
+ * Cache of pose-image → dark silhouette canvas, used to draw an outline/
+ * shadow behind the character so it stays readable against busy, colorful
+ * backgrounds. Keyed by Image identity (getPoseImage already caches/reuses
+ * the same Image object across frames that share a loop index), so the
+ * silhouette is rebuilt only when the underlying frame actually changes.
+ */
+const silhouetteCache = new WeakMap<Image, Canvas>();
+
+function getCharacterSilhouette(pose: Image): Canvas {
+  const cached = silhouetteCache.get(pose);
+  if (cached) return cached;
+  const sil = createCanvas(CHAR_W, CHAR_H);
+  const sCtx = sil.getContext('2d');
+  sCtx.drawImage(pose, 0, 0, CHAR_W, CHAR_H);
+  sCtx.globalCompositeOperation = 'source-in';
+  sCtx.fillStyle = 'rgba(8,6,18,0.95)';
+  sCtx.fillRect(0, 0, CHAR_W, CHAR_H);
+  silhouetteCache.set(pose, sil);
+  return sil;
+}
 
 const SIDEKICK_MAP: Record<string, string> = {
   dragon: '🐉', cat: '🐱', dog: '🐶', rabbit: '🐰',
@@ -435,9 +457,34 @@ function drawFrame(
     ctx.restore();
   }
 
+  // ── Character outline/shadow — keeps the character readable against busy,
+  //    colorful backgrounds regardless of what's behind it. Built from a
+  //    dark silhouette of the pose's own alpha shape (not a generic box), so
+  //    it hugs the character's actual outline. ──
+  const charX = CHAR_CX - CHAR_W / 2;
+  const silhouette = getCharacterSilhouette(pose);
+
+  ctx.save();
+  ctx.filter      = 'blur(7px)';
+  ctx.globalAlpha = 0.4;
+  ctx.drawImage(silhouette, charX, CHAR_TOP + 5, CHAR_W, CHAR_H);
+  ctx.restore();
+
+  ctx.save();
+  ctx.filter      = 'none';
+  ctx.globalAlpha = 0.5;
+  const OUTLINE_OFFSETS: Array<[number, number]> = [
+    [-1.5, 0], [1.5, 0], [0, -1.5], [0, 1.5],
+    [-1.1, -1.1], [1.1, -1.1], [-1.1, 1.1], [1.1, 1.1],
+  ];
+  for (const [dx, dy] of OUTLINE_OFFSETS) {
+    ctx.drawImage(silhouette, charX + dx, CHAR_TOP + dy, CHAR_W, CHAR_H);
+  }
+  ctx.restore();
+
   // ── Character pose — centred, real alpha transparency (colorkeyed PNG frames) ──
   ctx.save();
-  ctx.drawImage(pose, CHAR_CX - CHAR_W / 2, CHAR_TOP, CHAR_W, CHAR_H);
+  ctx.drawImage(pose, charX, CHAR_TOP, CHAR_W, CHAR_H);
   ctx.restore();
 
   // ── Child's name — gold at top ──
