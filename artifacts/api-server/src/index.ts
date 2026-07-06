@@ -366,10 +366,11 @@ app.post('/api/render-video', async (req, res): Promise<void> => {
 });
 
 // Start a test render job (Kevin, no DB)
-app.post('/api/test-video', async (_req, res): Promise<void> => {
+app.post('/api/test-video', async (req, res): Promise<void> => {
   const testChar: Character = {
     child_name: 'Kevin',
     child_age: 6,
+    character_type: 'boy',
     build: 'average',
     hair_style: 'short',
     hair_color: '#3a1e08',
@@ -378,6 +379,7 @@ app.post('/api/test-video', async (_req, res): Promise<void> => {
     accessories: 'cape',
     sidekick: 'dragon',
     theme: 'space',
+    ...(req.body as Partial<Character>),
   };
 
   const job: RenderJob = { id: randomUUID(), status: 'pending', created: Date.now() };
