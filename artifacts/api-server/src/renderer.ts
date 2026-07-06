@@ -90,6 +90,42 @@ interface PoseSet {
   triumph: PoseSource; peaceful: PoseSource; yawning: PoseSource; asleep: PoseSource;
 }
 
+/**
+ * Global cap on concurrent ffmpeg extraction processes across the whole
+ * render (poses + backgrounds combined). Each extraction is a full ffmpeg
+ * decode/scale/re-encode pass, so running too many at once can exhaust
+ * container memory. Acquire a slot before spawning, release when done.
+ */
+const MAX_CONCURRENT_EXTRACTIONS = 3;
+let activeExtractions = 0;
+const extractionWaiters: (() => void)[] = [];
+
+async function acquireExtractionSlot(): Promise<void> {
+  if (activeExtractions < MAX_CONCURRENT_EXTRACTIONS) {
+    activeExtractions++;
+    return;
+  }
+  await new Promise<void>(resolve => extractionWaiters.push(resolve));
+  activeExtractions++;
+}
+
+function releaseExtractionSlot(): void {
+  activeExtractions--;
+  const next = extractionWaiters.shift();
+  if (next) next();
+}
+
+async function extractVideoFramesLimited(
+  videoPath: string, outDir: string, w: number, h: number,
+): Promise<number> {
+  await acquireExtractionSlot();
+  try {
+    return await extractVideoFrames(videoPath, outDir, w, h);
+  } finally {
+    releaseExtractionSlot();
+  }
+}
+
 /** Load a single pose — prefers an animated MP4 clip, falls back to a static PNG. */
 async function loadPose(dir: string, name: string): Promise<PoseSource> {
   const mp4 = path.join(dir, `${name}.mp4`);
@@ -97,7 +133,7 @@ async function loadPose(dir: string, name: string): Promise<PoseSource> {
     await fs.access(mp4);
     const outDir = path.join(POSE_FRAMES_DIR, `${path.basename(dir)}-${name}-${Date.now()}`);
     console.log(`[renderer] Extracting pose frames: ${mp4}`);
-    const frameCount = await extractVideoFrames(mp4, outDir, CHAR_W, CHAR_H);
+    const frameCount = await extractVideoFramesLimited(mp4, outDir, CHAR_W, CHAR_H);
     console.log(`[renderer] Extracted ${frameCount} pose frames for "${name}"`);
     return { kind: 'video', framesDir: outDir, frameCount, _idx: -1, _img: null };
   } catch { /* no clip — fall back to PNG */ }
@@ -459,7 +495,7 @@ async function loadBg(theme: string, used: Set<number>): Promise<BgSource> {
       await fs.access(mp4);
       const outDir = path.join(BG_FRAMES_DIR, `${theme}-bg${n}-${Date.now()}`);
       console.log(`[renderer] Extracting bg frames: ${mp4}`);
-      const frameCount = await extractVideoFrames(mp4, outDir, W, H);
+      const frameCount = await extractVideoFramesLimited(mp4, outDir, W, H);
       console.log(`[renderer] Extracted ${frameCount} bg frames`);
       return { kind: 'video', framesDir: outDir, frameCount, _idx: -1, _img: null };
     } catch { /* not found or extraction failed — try next */ }
@@ -550,8 +586,13 @@ export async function renderVideo(
   const totalScenes = story.scenes.length;
 
   const writeFrame = async () => {
-    const raw = Buffer.from(ctx.getImageData(0, 0, W, H).data.buffer);
-    const ok  = ff.stdin.write(raw);
+    // Use canvas.data() (a direct raw-pixel Buffer) instead of
+    // ctx.getImageData(), which allocates a brand-new ImageData wrapper
+    // object (and native pixel copy) on every call. Across a multi-thousand
+    // -frame render, getImageData()'s allocations outpaced what periodic GC
+    // could reclaim and OOM-killed the process; canvas.data() avoids the
+    // extra wrapper entirely.
+    const ok = ff.stdin.write(canvas.data());
     if (!ok) await new Promise<void>(r => ff.stdin.once('drain', r));
   };
 
@@ -607,6 +648,17 @@ export async function renderVideo(
         drawFrame(ctx, bgImage, char, scene, poseImage, particles, f,
                   Math.min(1, Math.max(0, fadeAlpha)));
         await writeFrame();
+
+        // @napi-rs/canvas allocates native pixel buffers on every
+        // getImageData() call. V8's GC scheduling is driven by JS heap
+        // pressure, which stays tiny here (we only hold small objects on
+        // the JS side), so it under-collects the ballooning native/external
+        // memory and the process gets OOM-killed over a multi-thousand-frame
+        // render. Nudge a GC pass periodically to keep native memory bounded.
+        const globalFrame = si * FRAMES_PER_SCENE + f;
+        if (typeof global.gc === 'function' && globalFrame % 60 === 0) {
+          global.gc();
+        }
       }
 
       // ── Title card between scenes ─────────────────────────────────────────
