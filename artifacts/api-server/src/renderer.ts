@@ -55,9 +55,13 @@ const CHAR_CY       = CHAR_TOP + CHAR_H / 2;       // ≈ 537
 
 // Narration box
 const BOX_X = 18;
-const BOX_Y = 772;
 const BOX_W = W - 36;
-const BOX_H = 170;
+// The box's bottom edge stays anchored near the bottom of the frame; its
+// height grows upward to fit the full narration so long lines never spill
+// out above the top edge. MIN/MAX bound how much it can shrink/grow.
+const BOX_BOTTOM = 942;
+const BOX_H_MIN  = 170;
+const BOX_H_MAX  = 320;
 
 const NAME_Y    = 52;
 const GOLD      = '#f7e96b';
@@ -500,16 +504,25 @@ function drawFrame(
   ctx.restore();
 
   // ── Narration box with word-by-word reveal ──
+  // Size the box to the *full* narration (not just the partially-revealed
+  // text) so it stays a stable size for the whole scene instead of growing
+  // frame-by-frame as words appear. This guarantees every line — even for
+  // long narrations — fits inside the box instead of spilling above the top.
   ctx.save();
+  ctx.font       = '18px Arial, sans-serif';
+  const lineH    = 24;
+  const fullLines = wrapText(ctx, scene.narration, BOX_W - 28);
+  const boxH = Math.min(BOX_H_MAX, Math.max(BOX_H_MIN, fullLines.length * lineH + 46));
+  const boxY = BOX_BOTTOM - boxH;
+
   ctx.fillStyle = 'rgba(0,0,12,0.72)';
   ctx.beginPath();
-  ctx.roundRect(BOX_X, BOX_Y, BOX_W, BOX_H, 14);
+  ctx.roundRect(BOX_X, boxY, BOX_W, boxH, 14);
   ctx.fill();
   ctx.strokeStyle = `${GOLD_RGBA},0.28)`;
   ctx.lineWidth   = 1;
   ctx.stroke();
 
-  ctx.font         = '18px Arial, sans-serif';
   ctx.fillStyle    = 'rgba(255,255,255,0.96)';
   ctx.textAlign    = 'center';
   ctx.textBaseline = 'top';
@@ -518,10 +531,9 @@ function drawFrame(
   ctx.shadowOffsetY = 1;
 
   const visibleText = getVisibleNarration(scene.narration, f);
-  const lineH   = 24;
   const lines   = wrapText(ctx, visibleText, BOX_W - 28);
   const totalTH = lines.length * lineH;
-  const textY   = BOX_Y + (BOX_H - 20 - totalTH) / 2;
+  const textY   = boxY + (boxH - 20 - totalTH) / 2;
   lines.forEach((line, i) => ctx.fillText(line, W / 2, textY + i * lineH));
   ctx.restore();
 
@@ -531,7 +543,7 @@ function drawFrame(
   ctx.textBaseline = 'bottom';
   ctx.fillStyle    = `${GOLD_RGBA},0.40)`;
   ctx.textAlign    = 'center';
-  ctx.fillText('✦ DreamStick Adventures', W / 2, BOX_Y + BOX_H - 4);
+  ctx.fillText('✦ DreamStick Adventures', W / 2, boxY + boxH - 4);
   ctx.fillStyle = 'rgba(255,215,0,0.30)';
   ctx.textAlign = 'right';
   ctx.textBaseline = 'top';
