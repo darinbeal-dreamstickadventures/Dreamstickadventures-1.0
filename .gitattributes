@@ -8,3 +8,5 @@ artifacts/dreamstick/public/videos/testsuperhero-1783354798107.mp4 filter=lfs di
 artifacts/dreamstick/public/videos/testunderwater-1783354797849.mp4 filter=lfs diff=lfs merge=lfs -text
 artifacts/dreamstick/public/videos/kevin-1783356197821-narrated.mp4 filter=lfs diff=lfs merge=lfs -text
 artifacts/dreamstick/public/videos/kevin-1783356979319-narrated.mp4 filter=lfs diff=lfs merge=lfs -text
+artifacts/dreamstick/public/videos/kevin-1783358295127-narrated.mp4 filter=lfs diff=lfs merge=lfs -text
+artifacts/dreamstick/public/videos/kevin-1783358545046-narrated.mp4 filter=lfs diff=lfs merge=lfs -text

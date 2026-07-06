@@ -409,25 +409,36 @@ function drawFrame(
   // ── Particles (behind character) ──
   drawParticles(ctx, particles, f);
 
+  // ── Sidekick emoji — large, glowing, positioned to the right of and
+  //    slightly behind the character. Drawn *before* the character pose so
+  //    the character occludes the overlapping edge, giving it real depth
+  //    instead of feeling pasted on top. ──
+  const sk = (char.sidekick ?? '').toLowerCase();
+  if (sk && sk !== 'none') {
+    const emoji = SIDEKICK_MAP[sk] ?? '✨';
+    const skX   = CHAR_CX + CHAR_W / 2 + 28;
+    const skY   = CHAR_CY - CHAR_H * 0.12 + Math.sin(f / FPS * 2.3) * 8;
+
+    ctx.save();
+    // Very subtle soft glow behind the emoji — just enough to feel intentional.
+    const skGlow = ctx.createRadialGradient(skX, skY, 4, skX, skY, 78);
+    skGlow.addColorStop(0, `rgba(${gr},${gg},${gb},0.22)`);
+    skGlow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = skGlow;
+    ctx.fillRect(skX - 78, skY - 78, 156, 156);
+
+    ctx.font         = `120px ${EMOJI_FONT_FAMILY}`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle    = '#fdfdfd';
+    ctx.fillText(emoji, skX, skY);
+    ctx.restore();
+  }
+
   // ── Character pose — centred, real alpha transparency (colorkeyed PNG frames) ──
   ctx.save();
   ctx.drawImage(pose, CHAR_CX - CHAR_W / 2, CHAR_TOP, CHAR_W, CHAR_H);
   ctx.restore();
-
-  // ── Sidekick emoji — bobs gently to the right of the character ──
-  const sk = (char.sidekick ?? '').toLowerCase();
-  if (sk && sk !== 'none') {
-    const emoji  = SIDEKICK_MAP[sk] ?? '✨';
-    const skX    = Math.min(W - 28, CHAR_CX + CHAR_W / 2 + 32);
-    const skY    = CHAR_CY - CHAR_H * 0.18 + Math.sin(f / FPS * 2.3) * 8;
-    ctx.save();
-    ctx.font = `34px ${EMOJI_FONT_FAMILY}`;
-    ctx.fillStyle    = GOLD;
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(emoji, skX, skY);
-    ctx.restore();
-  }
 
   // ── Child's name — gold at top ──
   ctx.save();
