@@ -19,6 +19,7 @@ const TITLE_CARD_FRAMES = 20;        // title card between scenes
 
 const VIDEOS_DIR        = '/tmp/dreamstick-videos';
 const BG_FRAMES_DIR     = '/tmp/dreamstick-bg-frames';
+const POSE_FRAMES_DIR   = '/tmp/dreamstick-pose-frames';
 const PUBLIC_VIDEOS_DIR = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'videos');
 const BACKGROUNDS_DIR   = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'backgrounds');
 const CHARACTERS_DIR    = path.join(__rendererDirname, '..', '..', 'dreamstick', 'public', 'characters');
@@ -80,22 +81,39 @@ export interface RenderStory {
 
 // ── Pose loading ──────────────────────────────────────────────────────────────
 
+type PoseSource =
+  | { kind: 'image'; image: Image }
+  | { kind: 'video'; framesDir: string; frameCount: number; _idx: number; _img: Image | null };
+
 interface PoseSet {
-  run: Image; curious: Image; heroic: Image;
-  triumph: Image; peaceful: Image; yawning: Image; asleep: Image;
+  run: PoseSource; curious: PoseSource; heroic: PoseSource;
+  triumph: PoseSource; peaceful: PoseSource; yawning: PoseSource; asleep: PoseSource;
+}
+
+/** Load a single pose — prefers an animated MP4 clip, falls back to a static PNG. */
+async function loadPose(dir: string, name: string): Promise<PoseSource> {
+  const mp4 = path.join(dir, `${name}.mp4`);
+  try {
+    await fs.access(mp4);
+    const outDir = path.join(POSE_FRAMES_DIR, `${path.basename(dir)}-${name}-${Date.now()}`);
+    console.log(`[renderer] Extracting pose frames: ${mp4}`);
+    const frameCount = await extractVideoFrames(mp4, outDir, CHAR_W, CHAR_H);
+    console.log(`[renderer] Extracted ${frameCount} pose frames for "${name}"`);
+    return { kind: 'video', framesDir: outDir, frameCount, _idx: -1, _img: null };
+  } catch { /* no clip — fall back to PNG */ }
+  return { kind: 'image', image: await loadImage(path.join(dir, `${name}.png`)) };
 }
 
 async function loadPoseSet(gender: 'boy' | 'girl'): Promise<PoseSet> {
   const dir  = path.join(CHARACTERS_DIR, gender);
-  const load = (n: string) => loadImage(path.join(dir, `${n}.png`));
   const [run, curious, heroic, triumph, peaceful, yawning, asleep] = await Promise.all([
-    load('run'), load('curious'), load('heroic'), load('triumph'),
-    load('peaceful'), load('yawning'), load('asleep'),
+    loadPose(dir, 'run'), loadPose(dir, 'curious'), loadPose(dir, 'heroic'), loadPose(dir, 'triumph'),
+    loadPose(dir, 'peaceful'), loadPose(dir, 'yawning'), loadPose(dir, 'asleep'),
   ]);
   return { run, curious, heroic, triumph, peaceful, yawning, asleep };
 }
 
-function pickPose(mood: Mood, f: number, isLastScene: boolean, poses: PoseSet): Image {
+function pickPose(mood: Mood, f: number, isLastScene: boolean, poses: PoseSet): PoseSource {
   if (isLastScene && f >= 450) return poses.asleep;  // switch to asleep at 15 s
   if (isLastScene)              return poses.yawning;
   switch (mood) {
@@ -106,6 +124,23 @@ function pickPose(mood: Mood, f: number, isLastScene: boolean, poses: PoseSet): 
     case 'peaceful':   return poses.peaceful;
     case 'sleepy':     return f >= 450 ? poses.asleep : poses.yawning;
   }
+}
+
+/**
+ * Get the canvas Image for a pose at a given frame offset *within its own
+ * pose segment* (0-based, resets whenever the pose changes). Animated poses
+ * loop continuously (mod frameCount) rather than freezing, since the same
+ * pose often spans an entire 20 s scene.
+ */
+async function getPoseImage(src: PoseSource, localFrame: number): Promise<Image> {
+  if (src.kind === 'image') return src.image;
+  const idx = localFrame % src.frameCount;
+  if (src._idx === idx && src._img) return src._img;
+  src._img = await loadImage(
+    path.join(src.framesDir, `frame${String(idx + 1).padStart(5, '0')}.jpg`),
+  );
+  src._idx = idx;
+  return src._img;
 }
 
 // ── Particle system ───────────────────────────────────────────────────────────
@@ -363,15 +398,17 @@ type BgSource =
   | { kind: 'video'; framesDir: string; frameCount: number; _idx: number; _img: Image | null };
 
 /**
- * Extract frames from a ~15 s MP4 clip into JPEG files at the internal
- * render resolution (540×960). Returns the number of frames extracted.
+ * Extract frames from an MP4 clip into JPEG files scaled to the given
+ * width/height at the render frame rate. Returns the number of frames extracted.
  */
-async function extractBgFrames(videoPath: string, outDir: string): Promise<number> {
+async function extractVideoFrames(
+  videoPath: string, outDir: string, w: number, h: number,
+): Promise<number> {
   await fs.mkdir(outDir, { recursive: true });
   await new Promise<void>((resolve, reject) => {
     const proc = spawn('ffmpeg', [
       '-i', videoPath,
-      '-vf', `scale=${W}:${H}:flags=lanczos,fps=${FPS}`,
+      '-vf', `scale=${w}:${h}:flags=lanczos,fps=${FPS}`,
       '-q:v', '4',           // JPEG quality (1=best, 31=worst; 4 ≈ 85%)
       '-y',
       path.join(outDir, 'frame%05d.jpg'),
@@ -422,7 +459,7 @@ async function loadBg(theme: string, used: Set<number>): Promise<BgSource> {
       await fs.access(mp4);
       const outDir = path.join(BG_FRAMES_DIR, `${theme}-bg${n}-${Date.now()}`);
       console.log(`[renderer] Extracting bg frames: ${mp4}`);
-      const frameCount = await extractBgFrames(mp4, outDir);
+      const frameCount = await extractVideoFrames(mp4, outDir, W, H);
       console.log(`[renderer] Extracted ${frameCount} bg frames`);
       return { kind: 'video', framesDir: outDir, frameCount, _idx: -1, _img: null };
     } catch { /* not found or extraction failed — try next */ }
@@ -518,9 +555,19 @@ export async function renderVideo(
     if (!ok) await new Promise<void>(r => ff.stdin.once('drain', r));
   };
 
-  const tempDirs: string[] = bgs
-    .filter((b): b is Extract<BgSource, { kind: 'video' }> => b.kind === 'video')
-    .map(b => b.framesDir);
+  const tempDirs: string[] = [
+    ...bgs
+      .filter((b): b is Extract<BgSource, { kind: 'video' }> => b.kind === 'video')
+      .map(b => b.framesDir),
+    ...Object.values(poses)
+      .filter((p): p is Extract<PoseSource, { kind: 'video' }> => p.kind === 'video')
+      .map(p => p.framesDir),
+  ];
+
+  // Tracks when the current pose started, so animated pose clips loop from
+  // frame 0 each time the pose changes (rather than continuing a stale offset).
+  let lastPoseSrc: PoseSource | null = null;
+  let poseStartFrame = 0;
 
   try {
     for (let si = 0; si < totalScenes; si++) {
@@ -548,8 +595,16 @@ export async function renderVideo(
 
         // For video bg: frames 0-449 play the clip; frames 450-599 freeze last frame
         const bgImage = await getBgImage(bgSrc, Math.min(f, BG_CLIP_FREEZE_FRAME - 1));
-        const pose    = pickPose(mood, f, isLastScene, poses);
-        drawFrame(ctx, bgImage, char, scene, pose, particles, f,
+
+        const poseSrc = pickPose(mood, f, isLastScene, poses);
+        if (poseSrc !== lastPoseSrc) {
+          lastPoseSrc = poseSrc;
+          poseStartFrame = si * FRAMES_PER_SCENE + f;
+        }
+        const poseLocalFrame = (si * FRAMES_PER_SCENE + f) - poseStartFrame;
+        const poseImage = await getPoseImage(poseSrc, poseLocalFrame);
+
+        drawFrame(ctx, bgImage, char, scene, poseImage, particles, f,
                   Math.min(1, Math.max(0, fadeAlpha)));
         await writeFrame();
       }
