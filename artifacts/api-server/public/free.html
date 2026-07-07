@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DreamStick Adventures — Free Personalized Bedtime Video</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0e0520;
+  color: #f4f0ff;
+  font-family: 'Nunito', sans-serif;
+  min-height: 100vh;
+  padding: 40px 20px 60px;
+}
+.wrap { max-width: 640px; margin: 0 auto; }
+
+.logo {
+  font-family: 'Fredoka One', cursive;
+  font-size: 2rem;
+  color: #f7e96b;
+  text-align: center;
+  margin-bottom: 6px;
+  text-shadow: 0 0 30px rgba(247,233,107,0.4);
+}
+.logo span { color: #9b6fff; }
+
+.headline {
+  text-align: center;
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.3;
+  margin-bottom: 10px;
+}
+.headline em { color: #f7e96b; font-style: normal; }
+
+.subhead {
+  text-align: center;
+  color: #a898d8;
+  font-size: 1rem;
+  margin-bottom: 36px;
+}
+
+.card {
+  background: #160930;
+  border: 1px solid #2d1660;
+  border-radius: 20px;
+  padding: 28px 28px 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 0 40px rgba(100,50,200,0.12);
+}
+.card-title {
+  font-weight: 800;
+  font-size: 1rem;
+  color: #c4b5fd;
+  margin-bottom: 18px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.field { margin-bottom: 16px; }
+label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #8878bb;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+input[type="text"], input[type="email"], input[type="number"], select {
+  width: 100%;
+  background: #0e0520;
+  border: 1px solid #3d2480;
+  border-radius: 10px;
+  color: #f4f0ff;
+  font-family: 'Nunito', sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 10px 14px;
+  outline: none;
+  transition: border-color .15s;
+}
+input:focus, select:focus { border-color: #9b6fff; }
+select option { background: #160930; }
+
+.gender-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.gender-btn {
+  background: #0e0520;
+  border: 2px solid #3d2480;
+  border-radius: 12px;
+  color: #a898d8;
+  cursor: pointer;
+  font-family: 'Nunito', sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 12px;
+  text-align: center;
+  transition: all .15s;
+}
+.gender-btn:hover { border-color: #9b6fff; color: #fff; }
+.gender-btn.selected { border-color: #f7e96b; color: #f7e96b; background: #1e0a40; }
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.theme-tag {
+  background: #0e0520;
+  border: 2px solid #3d2480;
+  border-radius: 10px;
+  color: #a898d8;
+  cursor: pointer;
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 10px 4px;
+  text-align: center;
+  transition: all .15s;
+  user-select: none;
+}
+.theme-tag:hover { border-color: #9b6fff; color: #fff; }
+.theme-tag.selected { border-color: #f7e96b; color: #f7e96b; background: #1e0a40; }
+
+.submit-btn {
+  width: 100%;
+  background: linear-gradient(135deg, #f7e96b, #f59e0b);
+  border: none;
+  border-radius: 14px;
+  color: #0e0520;
+  cursor: pointer;
+  font-family: 'Fredoka One', cursive;
+  font-size: 1.3rem;
+  font-weight: 700;
+  padding: 18px;
+  margin-top: 8px;
+  transition: opacity .15s, transform .1s;
+  letter-spacing: 0.5px;
+}
+.submit-btn:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+.submit-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+.fine-print {
+  text-align: center;
+  color: #6d5d99;
+  font-size: 0.8rem;
+  margin-top: 12px;
+}
+
+.error-msg {
+  background: rgba(239,68,68,0.12);
+  border: 1px solid rgba(239,68,68,0.35);
+  border-radius: 10px;
+  color: #fca5a5;
+  font-size: 0.9rem;
+  padding: 12px 16px;
+  margin-top: 14px;
+  display: none;
+}
+
+/* ── Screens ── */
+#screen-form   { display: block; }
+#screen-pending { display: none; }
+#screen-done   { display: none; }
+#screen-already { display: none; }
+
+/* Pending screen */
+.pending-wrap {
+  text-align: center;
+  padding: 20px 0;
+}
+.magic-orb {
+  width: 100px;
+  height: 100px;
+  margin: 0 auto 24px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #f7e96b 0%, #9b6fff 50%, #0e0520 100%);
+  animation: pulse 2s ease-in-out infinite;
+  box-shadow: 0 0 60px rgba(155,111,255,0.6);
+}
+@keyframes pulse {
+  0%,100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.12); opacity: 0.85; }
+}
+.pending-title {
+  font-family: 'Fredoka One', cursive;
+  font-size: 1.8rem;
+  color: #f7e96b;
+  margin-bottom: 10px;
+}
+.pending-sub {
+  color: #a898d8;
+  font-size: 1rem;
+  line-height: 1.5;
+  margin-bottom: 24px;
+}
+.progress-bar-wrap {
+  background: #0e0520;
+  border-radius: 100px;
+  height: 8px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.progress-bar {
+  background: linear-gradient(90deg, #9b6fff, #f7e96b);
+  height: 100%;
+  border-radius: 100px;
+  width: 5%;
+  transition: width 1.5s ease;
+}
+.progress-label {
+  color: #6d5d99;
+  font-size: 0.8rem;
+  margin-bottom: 28px;
+}
+
+/* Done screen */
+.done-wrap { text-align: center; padding: 10px 0; }
+.star-burst {
+  font-size: 3.5rem;
+  margin-bottom: 14px;
+}
+.done-title {
+  font-family: 'Fredoka One', cursive;
+  font-size: 1.9rem;
+  color: #f7e96b;
+  margin-bottom: 10px;
+}
+.done-sub {
+  color: #a898d8;
+  font-size: 1rem;
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+.watch-btn {
+  display: inline-block;
+  background: linear-gradient(135deg, #f7e96b, #f59e0b);
+  border-radius: 14px;
+  color: #0e0520;
+  font-family: 'Fredoka One', cursive;
+  font-size: 1.2rem;
+  padding: 16px 32px;
+  text-decoration: none;
+  transition: opacity .15s;
+}
+.watch-btn:hover { opacity: 0.9; }
+.cta-sub {
+  color: #6d5d99;
+  font-size: 0.85rem;
+  margin-top: 16px;
+}
+.cta-sub a { color: #9b6fff; text-decoration: none; }
+.cta-sub a:hover { text-decoration: underline; }
+
+/* Already-claimed screen */
+.already-wrap { text-align: center; padding: 10px 0; }
+.already-title {
+  font-family: 'Fredoka One', cursive;
+  font-size: 1.7rem;
+  color: #c4b5fd;
+  margin-bottom: 10px;
+}
+.already-sub {
+  color: #a898d8;
+  font-size: 1rem;
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="logo">✨ DreamStick <span>Adventures</span></div>
+
+  <!-- ── Form screen ── -->
+  <div id="screen-form">
+    <h1 class="headline">Get your child's <em>FREE</em> personalized<br>bedtime cartoon in the next 5 minutes</h1>
+    <p class="subhead">Every night, your child becomes the hero of their own magical story.</p>
+
+    <form id="free-form" onsubmit="submitFree(event)">
+
+      <div class="card">
+        <div class="card-title">👤 About Your Child</div>
+
+        <div class="field">
+          <label>Child's Name</label>
+          <input type="text" id="child_name" placeholder="e.g. Emma" required maxlength="30">
+        </div>
+
+        <div class="field">
+          <label>Boy or Girl?</label>
+          <div class="gender-row">
+            <div class="gender-btn" id="btn-boy" onclick="selectGender('boy')">👦 Boy</div>
+            <div class="gender-btn" id="btn-girl" onclick="selectGender('girl')">👧 Girl</div>
+          </div>
+          <input type="hidden" id="character_type" value="boy">
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🌟 Favorite Adventure Theme</div>
+        <div class="theme-grid">
+          <div class="theme-tag" onclick="selectTheme(this, 'space')">🚀 Space</div>
+          <div class="theme-tag" onclick="selectTheme(this, 'ocean')">🌊 Ocean</div>
+          <div class="theme-tag" onclick="selectTheme(this, 'jungle')">🌿 Jungle</div>
+          <div class="theme-tag" onclick="selectTheme(this, 'dragons')">🐉 Dragons</div>
+          <div class="theme-tag" onclick="selectTheme(this, 'fairy tale')">🏰 Fairy Tale</div>
+          <div class="theme-tag" onclick="selectTheme(this, 'dinosaurs')">🦕 Dinos</div>
+          <div class="theme-tag" onclick="selectTheme(this, 'superheroes')">🦸 Heroes</div>
+          <div class="theme-tag" onclick="selectTheme(this, 'magic')">🔮 Magic</div>
+        </div>
+        <input type="hidden" id="theme" value="">
+      </div>
+
+      <div class="card">
+        <div class="card-title">📧 Where Should We Send It?</div>
+        <div class="field">
+          <label>Parent Email Address</label>
+          <input type="email" id="parent_email" placeholder="you@example.com" required>
+        </div>
+      </div>
+
+      <button type="submit" class="submit-btn" id="submit-btn">
+        Create My Child's FREE Video ✦
+      </button>
+      <p class="fine-print">Video saved to your account within 5 minutes. No credit card. No obligation. Just magic.</p>
+      <div class="error-msg" id="error-msg"></div>
+
+    </form>
+  </div>
+
+  <!-- ── Pending screen ── -->
+  <div id="screen-pending">
+    <div class="card">
+      <div class="pending-wrap">
+        <div class="magic-orb"></div>
+        <div class="pending-title">Creating the magic… ✨</div>
+        <div class="pending-sub" id="pending-sub">
+          We're writing <strong id="pending-name"></strong>'s personalized bedtime adventure<br>
+          and rendering every frame just for them.
+        </div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <div class="progress-label" id="progress-label">Starting up…</div>
+        <p style="color:#6d5d99;font-size:0.82rem;">This usually takes 3–5 minutes. Don't close this tab!</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Done screen ── -->
+  <div id="screen-done">
+    <div class="card">
+      <div class="done-wrap">
+        <div class="star-burst">🌟</div>
+        <div class="done-title" id="done-title">Adventure is ready!</div>
+        <div class="done-sub" id="done-sub">
+          Your child's personalized bedtime story is ready to watch.<br>
+          Hit play and watch the magic happen!
+        </div>
+        <a href="#" id="watch-link" class="watch-btn" target="_blank">▶ Watch the Adventure</a>
+        <p class="cta-sub">
+          Want a new adventure every night?<br>
+          <a href="/pricing">Subscribe to DreamStick Adventures →</a>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Already-claimed screen ── -->
+  <div id="screen-already">
+    <div class="card">
+      <div class="already-wrap">
+        <div style="font-size:3rem;margin-bottom:14px">🎬</div>
+        <div class="already-title">You've already claimed your free video!</div>
+        <div class="already-sub" id="already-sub">
+          We only allow one free video per email address to keep the magic fair.<br><br>
+          Want a new adventure every night? Subscribe and your child gets a brand-new
+          personalized story delivered to your inbox every evening.
+        </div>
+        <a href="/pricing" class="watch-btn">See Subscription Plans →</a>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /wrap -->
+
+<script>
+let selectedTheme = '';
+
+function selectGender(g) {
+  document.getElementById('character_type').value = g;
+  document.getElementById('btn-boy').classList.toggle('selected', g === 'boy');
+  document.getElementById('btn-girl').classList.toggle('selected', g === 'girl');
+}
+
+function selectTheme(el, value) {
+  document.querySelectorAll('.theme-tag').forEach(t => t.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedTheme = value;
+  document.getElementById('theme').value = value;
+}
+
+// Pre-select boy
+selectGender('boy');
+
+function show(screenId) {
+  ['screen-form','screen-pending','screen-done','screen-already'].forEach(id => {
+    document.getElementById(id).style.display = id === screenId ? 'block' : 'none';
+  });
+}
+
+function setError(msg) {
+  const el = document.getElementById('error-msg');
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+
+async function submitFree(e) {
+  e.preventDefault();
+  setError('');
+
+  const childName   = document.getElementById('child_name').value.trim();
+  const charType    = document.getElementById('character_type').value;
+  const theme       = document.getElementById('theme').value;
+  const parentEmail = document.getElementById('parent_email').value.trim();
+
+  if (!childName)   { setError('Please enter your child\'s name.'); return; }
+  if (!theme)       { setError('Please pick a favorite adventure theme.'); return; }
+  if (!parentEmail) { setError('Please enter your email address.'); return; }
+
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Creating magic…';
+
+  try {
+    const res = await fetch('/api/free-video', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ child_name: childName, character_type: charType, theme, parent_email: parentEmail }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      setError(data.error ?? 'Something went wrong. Please try again.');
+      btn.disabled = false;
+      btn.textContent = 'Create My Child\'s FREE Video ✦';
+      return;
+    }
+
+    if (data.already_claimed) {
+      show('screen-already');
+      return;
+    }
+
+    // Show pending screen and start polling
+    document.getElementById('pending-name').textContent = childName;
+    show('screen-pending');
+    pollJob(data.job_id, childName, theme);
+
+  } catch {
+    setError('Network error — please check your connection and try again.');
+    btn.disabled = false;
+    btn.textContent = 'Create My Child\'s FREE Video ✦';
+  }
+}
+
+const STAGE_LABELS = {
+  pending:    'Preparing the adventure…',
+  generating: 'Writing the story with AI…',
+  rendering:  'Animating every frame…',
+  done:       'All done!',
+  error:      'Something went wrong.',
+};
+const STAGE_PROGRESS = { pending: 8, generating: 28, rendering: 60, done: 100, error: 100 };
+
+function pollJob(jobId, childName, theme) {
+  const bar   = document.getElementById('progress-bar');
+  const label = document.getElementById('progress-label');
+  let attempts = 0;
+  const maxAttempts = 240; // 20 min max (5s interval)
+
+  const interval = setInterval(async () => {
+    attempts++;
+    if (attempts > maxAttempts) {
+      clearInterval(interval);
+      label.textContent = 'Taking longer than expected — please refresh the page.';
+      return;
+    }
+
+    try {
+      const res  = await fetch(`/api/render-status/${jobId}`);
+      const data = await res.json();
+      const status = data.status ?? 'pending';
+
+      const pct = STAGE_PROGRESS[status] ?? 10;
+      // Animate progress bar forward gradually even within a stage
+      const currentWidth = parseFloat(bar.style.width) || 5;
+      bar.style.width = Math.max(currentWidth + 0.4, pct) + '%';
+      label.textContent = STAGE_LABELS[status] ?? 'Working…';
+
+      if (status === 'done') {
+        clearInterval(interval);
+        bar.style.width = '100%';
+        setTimeout(() => showDone(data.url, childName, theme), 600);
+      } else if (status === 'error') {
+        clearInterval(interval);
+        show('screen-form');
+        setError('The video render failed: ' + (data.error ?? 'unknown error') + '. Please try again.');
+        const btn = document.getElementById('submit-btn');
+        btn.disabled = false;
+        btn.textContent = 'Create My Child\'s FREE Video ✦';
+      }
+    } catch { /* network blip — keep polling */ }
+  }, 5000);
+}
+
+function showDone(videoPath, childName, theme) {
+  document.getElementById('done-title').textContent = `${childName}'s adventure is ready! 🌟`;
+  document.getElementById('done-sub').innerHTML =
+    `${childName}'s personalized <strong>${theme}</strong> bedtime adventure is ready to watch.<br>Hit play and watch the magic happen!`;
+
+  const filename = videoPath.replace('/api/videos/', '');
+  document.getElementById('watch-link').href = `/api/watch/${filename}`;
+  show('screen-done');
+}
+</script>
+</body>
+</html>

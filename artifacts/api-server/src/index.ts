@@ -60,6 +60,10 @@ app.get('/form', (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
+app.get('/free', (_req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'free.html'));
+});
+
 // ── Stripe checkout ──────────────────────────────────────────────────────────
 
 app.post('/api/create-checkout-session', async (req, res): Promise<void> => {
@@ -367,6 +371,68 @@ app.post('/api/render-video', async (req, res): Promise<void> => {
     res.json({ success: true, job_id: job.id, status: 'pending' });
   } catch (e: any) {
     console.error('render-video error:', e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ── Free sample video ─────────────────────────────────────────────────────────
+
+app.post('/api/free-video', async (req, res): Promise<void> => {
+  try {
+    const { child_name, character_type, theme, parent_email } = req.body as {
+      child_name: string;
+      character_type?: string;
+      theme: string;
+      parent_email: string;
+    };
+
+    if (!child_name || !theme || !parent_email) {
+      res.status(400).json({ error: 'child_name, theme, and parent_email are required' });
+      return;
+    }
+
+    // Check if this email has already claimed a free video
+    const existing = await pool.query(
+      `SELECT id FROM characters WHERE parent_email = $1 AND subscription_status = 'free-sample' LIMIT 1`,
+      [parent_email.toLowerCase().trim()],
+    );
+    if (existing.rows.length > 0) {
+      res.json({ success: true, already_claimed: true });
+      return;
+    }
+
+    // Save character to DB
+    const insertResult = await pool.query(
+      `INSERT INTO characters (parent_email, child_name, child_age, character_type, build, sidekick, theme, subscription_status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'free-sample')
+       RETURNING id`,
+      [
+        parent_email.toLowerCase().trim(),
+        child_name.trim(),
+        7,
+        character_type ?? 'boy',
+        'average',
+        'dragon',
+        theme,
+      ],
+    );
+
+    const char: Character = {
+      child_name: child_name.trim(),
+      child_age:  7,
+      character_type: character_type ?? 'boy',
+      build:    'average',
+      sidekick: 'dragon',
+      theme,
+    };
+
+    const job: RenderJob = { id: randomUUID(), status: 'pending', created: Date.now() };
+    jobs.set(job.id, job);
+    runRenderJob(job, char).catch(() => {});
+
+    res.json({ success: true, already_claimed: false, job_id: job.id, character_id: insertResult.rows[0].id });
+  } catch (e: any) {
+    console.error('[free-video] error:', e.message);
     res.status(500).json({ success: false, error: e.message });
   }
 });
