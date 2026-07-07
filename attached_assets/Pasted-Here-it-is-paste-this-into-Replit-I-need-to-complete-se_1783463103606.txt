@@ -1,0 +1,69 @@
+Here it is — paste this into Replit:
+
+"I need to complete several pre-launch tasks. Please work through these in order:
+TASK 1 — Fix Supabase and migrate database
+Run this SQL in Supabase to fix the RLS permissions:
+CREATE POLICY allow_public_inserts ON characters FOR INSERT TO anon WITH CHECK (true);
+CREATE POLICY allow_public_selects ON characters FOR SELECT TO anon USING (true);
+Then switch the database connection from Replit's built-in PostgreSQL to Supabase using the SUPABASE_URL and SUPABASE_ANON_KEY environment variables already in Secrets. Migrate the characters table schema to match what we currently have. Test by inserting a test character and confirming it appears in the Supabase dashboard.
+TASK 2 — Wire in ElevenLabs voice narration
+Using the ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID already in Secrets — generate narration audio for each scene's text content using the eleven_multilingual_v2 model with stability 0.5 and similarity_boost 0.75.
+Combine all 6 scene narration audio files into one continuous track using FFmpeg with appropriate silence padding between scenes to match the 20 second scene duration.
+Mix the narration at 100% volume over the background audio already embedded in the background video clips at 25% volume so background music plays softly underneath the narration.
+TASK 3 — Set up SendGrid email delivery
+Using the SENDGRID_API_KEY environment variable — after each video finishes rendering send an email to the parent email address stored in the database with:
+Subject line: Tonight's adventure for [child name] is ready! ✦
+Email body:
+Hi there,
+[child name]'s personalized bedtime adventure is ready to watch!
+Tonight [child name] goes on an incredible [theme] adventure. Hit play and watch the magic happen.
+[VIDEO LINK OR ATTACHMENT]
+Sweet dreams,
+The DreamStick Adventures Team
+✦ Where every child is the hero of their own story
+dreamstickadventures.com
+If the video file is under 10MB attach it directly to the email. If over 10MB include a link to stream it from the server.
+TASK 4 — Set up the nightly video scheduler
+Create an automated scheduler that runs every night at 7pm Mountain Time and:
+
+Queries the database for all active subscribers
+For each subscriber generates a personalized story using the Claude API
+Renders the complete video with character clips and background clips
+Adds ElevenLabs narration
+Sends the finished video to the parent via SendGrid
+Marks the video as sent in the database with a timestamp
+Logs any errors without crashing the entire batch — if one video fails continue processing the others
+
+TASK 5 — Build the free sample video page
+Create a new page at /free that has:
+Headline: Get your child's FREE personalized bedtime cartoon in the next 5 minutes
+Simple form with these fields:
+
+Child's name
+Boy or Girl
+Favorite adventure theme — all 8 options as clickable tags
+Parent email address
+
+Button text: Create My Child's FREE Video ✦
+Below button small text: Video delivered to your inbox within 5 minutes. No credit card. No obligation. Just magic.
+When submitted:
+
+Check if this email has already claimed a free video — if yes show a friendly message saying their free video was already sent and invite them to subscribe
+If new email — generate a real personalized video using the full pipeline
+Email it to the parent within 5 minutes
+Save the email to the database with status of free-sample
+Show a confirmation screen saying: Your child's adventure is being created! Check your inbox in the next few minutes. While you wait — save their spot for nightly adventures at dreamstickadventures.com
+
+Limit one free video per email address to prevent abuse.
+TASK 6 — Run a complete end to end test
+After completing all tasks above run a complete end to end test:
+
+Submit a test character through the free sample page using the name Kevin age 7 boy space theme dragon sidekick
+Confirm the story generates via Claude API
+Confirm the video renders with the correct background and character clips
+Confirm ElevenLabs narration is added
+Confirm the email sends to the test email address
+Report any errors at each step
+Report the final video URL or attachment so I can watch and verify the complete product
+
+Please complete all tasks in order and report status after each one.

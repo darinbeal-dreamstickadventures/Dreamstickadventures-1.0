@@ -46,12 +46,32 @@ const CHARACTERS_DIR    = path.join(__rendererDirname, '..', '..', 'dreamstick',
 const BG_CLIP_FREEZE_FRAME = 450; // = 15 s × 30 fps
 
 // Character layout — internal canvas is 540×960; ffmpeg upscales 2× to 1080×1920
-const CHAR_H        = 450;                         // 900 px in final output
-const CHAR_W        = Math.round(CHAR_H * 0.558);  // ≈ 251 px
-const CHAR_BOTTOM   = 762;
-const CHAR_TOP      = CHAR_BOTTOM - CHAR_H;        // ≈ 312
-const CHAR_CX       = W / 2;                       // 270 — horizontally centred
-const CHAR_CY       = CHAR_TOP + CHAR_H / 2;       // ≈ 537
+// BASE dimensions used for pose-frame extraction (always at full resolution).
+const BASE_CHAR_H      = 450;                              // 900 px in final output
+const BASE_CHAR_W      = Math.round(BASE_CHAR_H * 0.558); // ≈ 251 px
+const CHAR_BOTTOM      = 762;                              // feet stay at this Y always
+const CHAR_CX          = W / 2;                            // 270 — horizontally centred
+
+// Per-build scale factors { h: heightScale, w: widthScale }
+const BUILD_SCALE: Record<string, { h: number; w: number }> = {
+  tiny:    { h: 0.70, w: 1.00 },
+  short:   { h: 0.82, w: 1.00 },
+  average: { h: 1.00, w: 1.00 },
+  tall:    { h: 1.20, w: 1.00 },
+  big:     { h: 1.10, w: 1.18 },
+};
+
+/** Compute character draw dimensions from build, anchored at CHAR_BOTTOM. */
+function charDims(build: string | undefined): {
+  charH: number; charW: number; charTop: number; charCY: number;
+} {
+  const scale = BUILD_SCALE[build ?? 'average'] ?? BUILD_SCALE['average'];
+  const charH   = Math.round(BASE_CHAR_H * scale.h);
+  const charW   = Math.round(BASE_CHAR_W * scale.w);
+  const charTop = CHAR_BOTTOM - charH;
+  const charCY  = charTop + charH / 2;
+  return { charH, charW, charTop, charCY };
+}
 
 // Narration box
 const BOX_X = 18;
@@ -68,24 +88,26 @@ const GOLD      = '#f7e96b';
 const GOLD_RGBA = 'rgba(247,233,107';
 
 /**
- * Cache of pose-image → dark silhouette canvas, used to draw an outline/
- * shadow behind the character so it stays readable against busy, colorful
- * backgrounds. Keyed by Image identity (getPoseImage already caches/reuses
- * the same Image object across frames that share a loop index), so the
- * silhouette is rebuilt only when the underlying frame actually changes.
+ * Cache of pose-image + draw size → dark silhouette canvas.
+ * Outer key: Image identity (same Image object = same raw pixels).
+ * Inner key: "${w}x${h}" string so different build sizes get separate entries.
  */
-const silhouetteCache = new WeakMap<Image, Canvas>();
+const silhouetteCache = new WeakMap<Image, Map<string, Canvas>>();
 
-function getCharacterSilhouette(pose: Image): Canvas {
-  const cached = silhouetteCache.get(pose);
-  if (cached) return cached;
-  const sil = createCanvas(CHAR_W, CHAR_H);
+function getCharacterSilhouette(pose: Image, w: number, h: number): Canvas {
+  const sizeKey = `${w}x${h}`;
+  let sizeMap = silhouetteCache.get(pose);
+  if (sizeMap?.has(sizeKey)) return sizeMap.get(sizeKey)!;
+
+  const sil = createCanvas(w, h);
   const sCtx = sil.getContext('2d');
-  sCtx.drawImage(pose, 0, 0, CHAR_W, CHAR_H);
+  sCtx.drawImage(pose, 0, 0, w, h);
   sCtx.globalCompositeOperation = 'source-in';
   sCtx.fillStyle = 'rgba(8,6,18,0.95)';
-  sCtx.fillRect(0, 0, CHAR_W, CHAR_H);
-  silhouetteCache.set(pose, sil);
+  sCtx.fillRect(0, 0, w, h);
+
+  if (!sizeMap) { sizeMap = new Map(); silhouetteCache.set(pose, sizeMap); }
+  sizeMap.set(sizeKey, sil);
   return sil;
 }
 
@@ -219,7 +241,7 @@ async function loadPose(dir: string, name: string): Promise<PoseSource> {
     await fs.access(mp4);
     const outDir = path.join(POSE_FRAMES_DIR, `${path.basename(dir)}-${name}-${Date.now()}`);
     console.log(`[renderer] Extracting pose frames (colorkeyed): ${mp4}`);
-    const frameCount = await extractPoseFramesKeyedLimited(mp4, outDir, CHAR_W, CHAR_H);
+    const frameCount = await extractPoseFramesKeyedLimited(mp4, outDir, BASE_CHAR_W, BASE_CHAR_H);
     console.log(`[renderer] Extracted ${frameCount} pose frames for "${name}"`);
     return { kind: 'video', framesDir: outDir, frameCount, _idx: -1, _img: null };
   } catch { /* no clip — fall back to PNG */ }
@@ -293,7 +315,7 @@ function createParticles(sceneIndex: number): Particle[] {
       out.push({
         spawnFrame: f,
         lifetime:   Math.floor(rng() * 30) + 60,
-        relX:       (rng() - 0.5) * CHAR_W * 1.8,
+        relX:       (rng() - 0.5) * BASE_CHAR_W * 1.8,
         speedY:     -(rng() * 1.6 + 0.5),
         size:        rng() * 2.5 + 1.5,
         driftX:     (rng() - 0.5) * 0.45,
@@ -304,7 +326,7 @@ function createParticles(sceneIndex: number): Particle[] {
 }
 
 function drawParticles(
-  ctx: SKRSContext2D, particles: Particle[], f: number,
+  ctx: SKRSContext2D, particles: Particle[], f: number, charCY: number,
 ): void {
   ctx.save();
   for (const p of particles) {
@@ -319,7 +341,7 @@ function drawParticles(
     ctx.beginPath();
     ctx.arc(
       CHAR_CX + p.relX + p.driftX * age,
-      CHAR_CY + p.speedY * age,
+      charCY + p.speedY * age,
       p.size, 0, Math.PI * 2,
     );
     ctx.fill();
@@ -407,6 +429,9 @@ function drawFrame(
   f: number,
   fadeAlpha: number,
 ): void {
+  const { charH, charW, charTop, charCY } = charDims(char.build);
+  const charX = CHAR_CX - charW / 2;
+
   const glowHex = (char.glow_color ?? GOLD).replace('#', '');
   const gr = parseInt(glowHex.slice(0, 2), 16) || 247;
   const gg = parseInt(glowHex.slice(2, 4), 16) || 233;
@@ -426,14 +451,14 @@ function drawFrame(
   ctx.fillRect(0, 0, W, H);
 
   // ── Glow behind character ──
-  const glow = ctx.createRadialGradient(CHAR_CX, CHAR_CY, 10, CHAR_CX, CHAR_CY, 210);
+  const glow = ctx.createRadialGradient(CHAR_CX, charCY, 10, CHAR_CX, charCY, 210);
   glow.addColorStop(0, `rgba(${gr},${gg},${gb},0.28)`);
   glow.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, W, H);
 
   // ── Particles (behind character) ──
-  drawParticles(ctx, particles, f);
+  drawParticles(ctx, particles, f, charCY);
 
   // ── Sidekick emoji — large, glowing, positioned to the right of and
   //    slightly behind the character. Drawn *before* the character pose so
@@ -442,8 +467,8 @@ function drawFrame(
   const sk = (char.sidekick ?? '').toLowerCase();
   if (sk && sk !== 'none') {
     const emoji = SIDEKICK_MAP[sk] ?? '✨';
-    const skX   = CHAR_CX + CHAR_W / 2 + 28;
-    const skY   = CHAR_CY - CHAR_H * 0.12 + Math.sin(f / FPS * 2.3) * 8;
+    const skX   = CHAR_CX + charW / 2 + 28;
+    const skY   = charCY - charH * 0.12 + Math.sin(f / FPS * 2.3) * 8;
 
     ctx.save();
     // Very subtle soft glow behind the emoji — just enough to feel intentional.
@@ -465,13 +490,12 @@ function drawFrame(
   //    colorful backgrounds regardless of what's behind it. Built from a
   //    dark silhouette of the pose's own alpha shape (not a generic box), so
   //    it hugs the character's actual outline. ──
-  const charX = CHAR_CX - CHAR_W / 2;
-  const silhouette = getCharacterSilhouette(pose);
+  const silhouette = getCharacterSilhouette(pose, charW, charH);
 
   ctx.save();
   ctx.filter      = 'blur(7px)';
   ctx.globalAlpha = 0.4;
-  ctx.drawImage(silhouette, charX, CHAR_TOP + 5, CHAR_W, CHAR_H);
+  ctx.drawImage(silhouette, charX, charTop + 5, charW, charH);
   ctx.restore();
 
   ctx.save();
@@ -482,13 +506,13 @@ function drawFrame(
     [-1.1, -1.1], [1.1, -1.1], [-1.1, 1.1], [1.1, 1.1],
   ];
   for (const [dx, dy] of OUTLINE_OFFSETS) {
-    ctx.drawImage(silhouette, charX + dx, CHAR_TOP + dy, CHAR_W, CHAR_H);
+    ctx.drawImage(silhouette, charX + dx, charTop + dy, charW, charH);
   }
   ctx.restore();
 
   // ── Character pose — centred, real alpha transparency (colorkeyed PNG frames) ──
   ctx.save();
-  ctx.drawImage(pose, charX, CHAR_TOP, CHAR_W, CHAR_H);
+  ctx.drawImage(pose, charX, charTop, charW, charH);
   ctx.restore();
 
   // ── Child's name — gold at top ──
