@@ -48,10 +48,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ── Pricing page ─────────────────────────────────────────────────────────────
+// ── Static pages (public/ lives one level above src/) ────────────────────────
+
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
 app.get('/pricing', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'pricing.html'));
+  res.sendFile(path.join(PUBLIC_DIR, 'pricing.html'));
+});
+
+app.get('/form', (_req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
 // ── Stripe checkout ──────────────────────────────────────────────────────────
