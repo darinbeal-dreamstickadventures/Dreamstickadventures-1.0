@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { renderVideo } from './renderer.js';
 import { generateStoryAudio, generateSceneAudio } from './narration.js';
+import { sendVideoReadyEmail } from './email.js';
 
 // Prevent EPIPE / unhandled async rejection from crashing the server
 process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
@@ -152,6 +153,7 @@ interface Story {
 interface Character {
   child_name: string;
   child_age: number;
+  parent_email?: string;
   character_type?: string;
   build?: string;
   hair_style?: string;
@@ -288,6 +290,9 @@ interface RenderJob {
   url?: string;
   story?: Story;
   error?: string;
+  parentEmail?: string;
+  childName?: string;
+  theme?: string;
 }
 
 const jobs = new Map<string, RenderJob>();
@@ -333,6 +338,18 @@ async function runRenderJob(job: RenderJob, char: Character): Promise<void> {
     job.url = `/api/videos/${filename}`;
     job.status = 'done';
     console.log(`[job:${job.id}] Done → ${job.url}`);
+
+    // ── Email delivery (non-fatal) ──────────────────────────────────────────
+    if (job.parentEmail) {
+      const domain = (process.env.REPLIT_DOMAINS ?? '').split(',')[0].trim();
+      const watchUrl = `https://${domain}/api/watch/${filename}`;
+      sendVideoReadyEmail({
+        toEmail:   job.parentEmail,
+        childName: job.childName ?? char.child_name,
+        theme:     job.theme ?? char.theme ?? 'adventure',
+        watchUrl,
+      }).catch(() => {});
+    }
   } catch (e: any) {
     job.status = 'error';
     job.error = e.message;
@@ -362,7 +379,12 @@ app.post('/api/render-video', async (req, res): Promise<void> => {
     }
     const char = result.rows[0] as Character;
 
-    const job: RenderJob = { id: randomUUID(), status: 'pending', created: Date.now() };
+    const job: RenderJob = {
+      id: randomUUID(), status: 'pending', created: Date.now(),
+      parentEmail: char.parent_email,
+      childName:   char.child_name,
+      theme:       char.theme,
+    };
     jobs.set(job.id, job);
 
     // Fire-and-forget — render continues even if client disconnects
@@ -426,7 +448,12 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
       theme,
     };
 
-    const job: RenderJob = { id: randomUUID(), status: 'pending', created: Date.now() };
+    const job: RenderJob = {
+      id: randomUUID(), status: 'pending', created: Date.now(),
+      parentEmail: parent_email.toLowerCase().trim(),
+      childName:   child_name.trim(),
+      theme,
+    };
     jobs.set(job.id, job);
     runRenderJob(job, char).catch(() => {});
 
