@@ -1,0 +1,95 @@
+Congratulations — you just received your first end to end DreamStick Adventures email. That is a massive milestone.
+
+You Are Right To Want A Final Check
+Tell Replit this to run a complete system audit:
+
+"Please run a complete pre-launch system audit and check every component of the DreamStick Adventures pipeline. Test each item and report pass or fail with any issues found:
+DATABASE:
+
+Can we connect to Supabase successfully?
+Can we insert a new character record?
+Can we query existing characters?
+Are all required fields and columns present?
+
+CHARACTER BUILDER:
+
+Does the form at / load correctly?
+Do all form fields save to database correctly?
+Does the character preview update correctly?
+Does the success confirmation screen appear?
+
+FREE SAMPLE PAGE:
+
+Does the page at /free load correctly?
+Does the form submit successfully?
+Does it correctly block duplicate email addresses?
+Does it trigger the video generation pipeline?
+
+STRIPE PAYMENTS:
+
+Do all three pricing plans load at /pricing?
+Does the Stripe checkout session create correctly?
+Does successful payment redirect to character builder?
+Does cancelled payment redirect correctly?
+
+CLAUDE STORY GENERATOR:
+
+Does the Claude API connect successfully?
+Does it generate a complete 6 scene story?
+Does the story include the child's name?
+Does the final scene always have sleepy mood?
+Are all 6 scenes present with correct duration?
+
+VIDEO RENDERER:
+
+Do background clips load correctly for all 8 themes?
+Do character clips load for both boy and girl?
+Does FFmpeg colorkey remove black background cleanly?
+Does the character composite correctly on the background?
+Does build scaling work for all 5 sizes?
+Does the name display correctly at top of frame?
+Does the story text display correctly at bottom?
+Does the DreamStick Adventures watermark appear?
+Does the sidekick emoji appear correctly?
+Do scene transitions fade correctly?
+Does the final MP4 render completely without errors?
+
+ELEVENLABS NARRATION:
+
+Does ElevenLabs API connect successfully?
+Does narration generate for all 6 scenes?
+Does audio combine correctly into one track?
+Does narration mix correctly over background music at 25% volume?
+Is narration clearly audible throughout?
+
+SENDGRID EMAIL DELIVERY:
+
+Does SendGrid API connect successfully?
+Does the dynamic template load correctly?
+Does the email send successfully from adventures@dreamstickadventures.com?
+Does the video link work in the email?
+Does the child's name appear correctly in subject line?
+
+NIGHTLY SCHEDULER:
+
+Is the scheduler set correctly for 7pm Mountain Time?
+Does it query all active subscribers correctly?
+Does it process each subscriber without crashing?
+Does it log errors without stopping the batch?
+Does it mark videos as sent in the database?
+
+SECURITY:
+
+Are all API keys stored in Secrets not in code?
+Is the free sample limited to one per email address?
+Is there rate limiting on the video generation endpoint?
+Are subscriber emails protected and not publicly accessible?
+
+PERFORMANCE:
+
+How long does a complete video take to render end to end?
+How long does ElevenLabs narration take to generate?
+How long does the full email pipeline take from form submit to email arrival?
+Are there any memory or timeout issues with longer renders?
+
+Please report each item as PASS or FAIL with specific details on any failures and recommended fixes. After the audit provide a launch readiness score out of 100 and list the top 3 things that should be fixed before launching to the public.
