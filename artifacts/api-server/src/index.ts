@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 import { renderVideo } from './renderer.js';
 import { generateStoryAudio, generateSceneAudio } from './narration.js';
 import { sendVideoReadyEmail } from './email.js';
+import { objectStorageClient } from './lib/objectStorage.js';
 
 // Prevent EPIPE / unhandled async rejection from crashing the server
 process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
@@ -308,6 +309,50 @@ setInterval(() => {
 const NARRATION_ENABLED =
   !!process.env.ELEVENLABS_API_KEY && !!process.env.ELEVENLABS_VOICE_ID;
 
+async function uploadVideoToGCS(localPath: string, filename: string): Promise<void> {
+  const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+  if (!bucketId) throw new Error('DEFAULT_OBJECT_STORAGE_BUCKET_ID not set');
+  const bucket = objectStorageClient.bucket(bucketId);
+  await bucket.upload(localPath, {
+    destination: `videos/${filename}`,
+    contentType: 'video/mp4',
+    metadata: { cacheControl: 'public, max-age=86400' },
+  });
+  console.log(`[gcs] Uploaded ${filename} to bucket ${bucketId}`);
+}
+
+async function streamVideoFromGCS(filename: string, res: import('express').Response): Promise<boolean> {
+  const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+  if (!bucketId) return false;
+  try {
+    const bucket = objectStorageClient.bucket(bucketId);
+    const file = bucket.file(`videos/${filename}`);
+    const [exists] = await file.exists();
+    if (!exists) return false;
+    const [meta] = await file.getMetadata();
+    res.setHeader('Content-Type', 'video/mp4');
+    if (meta.size) res.setHeader('Content-Length', String(meta.size));
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    await new Promise<void>((resolve, reject) => {
+      file.createReadStream()
+        .on('error', reject)
+        .pipe(res)
+        .on('finish', resolve)
+        .on('error', reject);
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function buildWatchUrl(filename: string): string {
+  const customDomain = process.env.WATCH_DOMAIN?.trim();
+  if (customDomain) return `https://${customDomain}/api/videos/${filename}`;
+  const replitDomain = (process.env.REPLIT_DOMAINS ?? '').split(',')[0].trim();
+  return `https://${replitDomain}/api/videos/${filename}`;
+}
+
 async function runRenderJob(job: RenderJob, char: Character): Promise<void> {
   let audioPath: string | undefined;
   try {
@@ -339,10 +384,14 @@ async function runRenderJob(job: RenderJob, char: Character): Promise<void> {
     job.status = 'done';
     console.log(`[job:${job.id}] Done → ${job.url}`);
 
+    // ── Upload to GCS for persistent storage ───────────────────────────────
+    uploadVideoToGCS(filePath, filename).catch((e: any) =>
+      console.error(`[gcs] Upload failed (video still served from disk): ${e.message}`)
+    );
+
     // ── Email delivery (non-fatal) ──────────────────────────────────────────
     if (job.parentEmail) {
-      const domain = (process.env.REPLIT_DOMAINS ?? '').split(',')[0].trim();
-      const watchUrl = `https://${domain}/api/watch/${filename}`;
+      const watchUrl = buildWatchUrl(filename);
       sendVideoReadyEmail({
         toEmail:   job.parentEmail,
         childName: job.childName ?? char.child_name,
@@ -548,15 +597,25 @@ a.dl:hover{background:#fde047}
   }
 });
 
-// Serve completed video files
+// Serve completed video files — local /tmp first, then GCS fallback
 app.get('/api/videos/:filename', async (req, res): Promise<void> => {
+  const filename = path.basename(req.params.filename);
+  const filePath = path.join(VIDEOS_DIR, filename);
+
+  // Try local /tmp first (fast, available right after render)
   try {
-    const filename = path.basename(req.params.filename);
-    const filePath = path.join(VIDEOS_DIR, filename);
     await fs.access(filePath);
     res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
     res.sendFile(filePath);
+    return;
   } catch {
+    // File not on disk — fall through to GCS
+  }
+
+  // Fall back to GCS (persists across restarts)
+  const served = await streamVideoFromGCS(filename, res);
+  if (!served) {
     res.status(404).json({ error: 'Video not found' });
   }
 });
