@@ -699,6 +699,7 @@ export async function renderVideo(
   char: RenderCharacter,
   story: RenderStory,
   audioPath?: string,
+  sceneDurationsSec?: number[],
 ): Promise<string> {
   await fs.mkdir(VIDEOS_DIR, { recursive: true });
 
@@ -742,6 +743,13 @@ export async function renderVideo(
   const ctx         = canvas.getContext('2d');
   const totalScenes = story.scenes.length;
 
+  // Per-scene frame counts — driven by actual narration durations when provided,
+  // falling back to the old 20 s constant so the function works without audio.
+  const framesPerScene: number[] = story.scenes.map((_, i) => {
+    const durSec = sceneDurationsSec?.[i] ?? 20;
+    return Math.round(durSec * FPS);
+  });
+
   const writeFrame = async () => {
     // Use canvas.data() (a direct raw-pixel Buffer) instead of
     // ctx.getImageData(), which allocates a brand-new ImageData wrapper
@@ -762,21 +770,24 @@ export async function renderVideo(
       .map(p => p.framesDir),
   ];
 
-  // Tracks when the current pose started, so animated pose clips loop from
-  // frame 0 each time the pose changes (rather than continuing a stale offset).
+  // Tracks when the current pose started so animated clips loop from frame 0
+  // whenever the pose changes. Uses a monotonic globalFrame counter so it stays
+  // correct across scenes of variable length.
   let lastPoseSrc: PoseSource | null = null;
   let poseStartFrame = 0;
+  let globalFrame = 0;
 
   try {
     for (let si = 0; si < totalScenes; si++) {
-      const scene       = story.scenes[si];
-      const bgSrc       = bgs[si];
-      const isLastScene = si === totalScenes - 1;
-      const mood        = scene.mood as Mood;
-      const particles   = createParticles(si);
+      const scene         = story.scenes[si];
+      const bgSrc         = bgs[si];
+      const isLastScene   = si === totalScenes - 1;
+      const mood          = scene.mood as Mood;
+      const particles     = createParticles(si);
+      const sceneFrames   = framesPerScene[si];
 
       // ── Scene frames ──────────────────────────────────────────────────────
-      for (let f = 0; f < FRAMES_PER_SCENE; f++) {
+      for (let f = 0; f < sceneFrames; f++) {
         let fadeAlpha = 0;
 
         // Fade in from title card
@@ -784,22 +795,22 @@ export async function renderVideo(
           fadeAlpha = 1 - f / FADE_FRAMES;
 
         // Fade out to next title card
-        if (!isLastScene && f >= FRAMES_PER_SCENE - FADE_FRAMES)
-          fadeAlpha = (f - (FRAMES_PER_SCENE - FADE_FRAMES)) / FADE_FRAMES;
+        if (!isLastScene && f >= sceneFrames - FADE_FRAMES)
+          fadeAlpha = (f - (sceneFrames - FADE_FRAMES)) / FADE_FRAMES;
 
         // Final scene fades to black over last 2 s
-        if (isLastScene && f >= FRAMES_PER_SCENE - FADE_FRAMES * 3)
-          fadeAlpha = (f - (FRAMES_PER_SCENE - FADE_FRAMES * 3)) / (FADE_FRAMES * 3);
+        if (isLastScene && f >= sceneFrames - FADE_FRAMES * 3)
+          fadeAlpha = (f - (sceneFrames - FADE_FRAMES * 3)) / (FADE_FRAMES * 3);
 
-        // For video bg: frames 0-449 play the clip; frames 450-599 freeze last frame
+        // For video bg: frames 0-449 play the clip; beyond that freeze last frame
         const bgImage = await getBgImage(bgSrc, Math.min(f, BG_CLIP_FREEZE_FRAME - 1));
 
         const poseSrc = pickPose(mood, f, isLastScene, poses);
         if (poseSrc !== lastPoseSrc) {
           lastPoseSrc = poseSrc;
-          poseStartFrame = si * FRAMES_PER_SCENE + f;
+          poseStartFrame = globalFrame;
         }
-        const poseLocalFrame = (si * FRAMES_PER_SCENE + f) - poseStartFrame;
+        const poseLocalFrame = globalFrame - poseStartFrame;
         const poseImage = await getPoseImage(poseSrc, poseLocalFrame);
 
         drawFrame(ctx, bgImage, char, scene, poseImage, particles, f,
@@ -812,10 +823,10 @@ export async function renderVideo(
         // the JS side), so it under-collects the ballooning native/external
         // memory and the process gets OOM-killed over a multi-thousand-frame
         // render. Nudge a GC pass periodically to keep native memory bounded.
-        const globalFrame = si * FRAMES_PER_SCENE + f;
         if (typeof global.gc === 'function' && globalFrame % 60 === 0) {
           global.gc();
         }
+        globalFrame++;
       }
 
       // ── Title card between scenes ─────────────────────────────────────────
@@ -826,6 +837,7 @@ export async function renderVideo(
         for (let f = 0; f < TITLE_CARD_FRAMES; f++) {
           drawTitleCard(ctx, nextScene, f);
           await writeFrame();
+          globalFrame++;
         }
         void bgImage; // suppress unused warning
       }

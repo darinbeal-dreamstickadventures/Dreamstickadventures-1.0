@@ -1,0 +1,54 @@
+Please fix all critical issues found in the audit in this order:
+FIX 1 — Rate Limiting on /api/free-video
+Add rate limiting to the free video endpoint to prevent abuse and runaway API costs. Implement:
+
+Maximum 1 free video request per IP address per hour
+Maximum 1 free video per email address ever — already implemented but confirm it is working
+If rate limit exceeded return a friendly message: 'You have already requested a free video recently. Please check your inbox or try again later.'
+Log all rate limit violations with IP address and timestamp
+
+FIX 2 — Build The Nightly Scheduler
+Create a complete nightly video scheduler that:
+
+Runs automatically every night at 7pm Mountain Time using node-cron or similar
+Queries the database for all characters with subscription_status of active
+For each active subscriber:
+
+Generates a fresh personalized story via Claude API
+Renders a complete video using their character details
+Adds ElevenLabs narration
+Uploads finished video to storage
+Sends email to parent via SendGrid with video link
+Updates database to mark video sent with timestamp
+Logs success with subscriber name and timestamp
+
+
+If one subscriber's video fails — log the error and continue processing the rest
+Do not stop the entire batch for one failure
+Send me a summary log after each nightly run showing:
+Total subscribers processed
+Successful videos sent
+Any failures with error details
+
+FIX 3 — Wire Stripe Price IDs
+The pricing page checkout is returning unknown plan undefined. Fix this by:
+
+Retrieving the correct Stripe price IDs from the STRIPE_DREAMER_PRICE_ID, STRIPE_NIGHTLY_PRICE_ID and STRIPE_FAMILY_PRICE_ID environment variables already in Secrets
+Wiring each pricing page button to pass the correct plan name to the checkout session endpoint
+Test all three plans create a valid Stripe checkout session
+Verify the post payment redirect takes the subscriber to the character builder page
+Update the character subscription_status to active in the database after successful payment
+
+FIX 4 — Fix child_age NULL issue
+The free video form does not collect age. Fix this by defaulting child_age to 6 in the free video endpoint if no age is provided. This prevents the NOT NULL constraint violation.
+FIX 5 — Add Background Music Mixing
+The videos currently have narration only with no background music. Add background music mixing to the video renderer:
+
+Extract the audio track from the background video clip
+Mix it at 25% volume underneath the ElevenLabs narration at 100% volume
+Merge both audio tracks into the final MP4
+Test with a complete render to confirm music plays softly under narration
+
+FIX 6 — Set Production Watch Domain
+Add an environment variable WATCH_DOMAIN with value dreamstickadventures.com so video links in emails point to the production domain instead of the replit.dev development domain.
+After completing all fixes please run the full audit again and report the new launch readiness score.

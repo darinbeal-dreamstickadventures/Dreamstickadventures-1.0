@@ -34,12 +34,34 @@ function ffmpeg(args: string[]): Promise<void> {
   });
 }
 
-/** Pad (or trim) audio to an exact duration in seconds. */
-async function padToExact(inputPath: string, durationSec: number): Promise<string> {
+/** Return the duration of an audio file in seconds using ffprobe. */
+async function probeDuration(filePath: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('ffprobe', [
+      '-v', 'error',
+      '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1',
+      filePath,
+    ]);
+    let out = '';
+    proc.stdout.on('data', (d: Buffer) => { out += d.toString(); });
+    proc.on('close', (code: number) => {
+      if (code !== 0) return reject(new Error(`ffprobe exit ${code}`));
+      const dur = parseFloat(out.trim());
+      if (isNaN(dur)) return reject(new Error(`ffprobe bad output: "${out}"`));
+      resolve(dur);
+    });
+    proc.on('error', reject);
+  });
+}
+
+/** Pad audio to at least targetSec — never trims if already longer. */
+async function padToAtLeast(inputPath: string, targetSec: number): Promise<string> {
   const outPath = inputPath.replace(/\.mp3$/, '-padded.mp3');
   await ffmpeg([
     '-i', inputPath,
-    '-af', `apad=pad_dur=${durationSec},atrim=duration=${durationSec}`,
+    '-af', `apad=pad_dur=${targetSec}`,
+    '-t', String(targetSec),
     '-c:a', 'libmp3lame', '-q:a', '2',
     '-y', outPath,
   ]);
@@ -138,52 +160,63 @@ export async function generateSceneAudio(
   return outPath;
 }
 
+const MIN_SCENE_SEC   = 15;   // floor so very short scenes don't feel rushed
+const AUDIO_BUFFER_SEC = 1.0;  // silence pad after narration ends before cut
+
 /**
  * Generate narration audio for a full story (6 scenes).
- * Pads each scene to exactly 20 s, inserts silence for title-card gaps,
- * then concatenates into a single MP3 that is frame-accurate with the video.
+ * Each scene's duration is driven by its actual ElevenLabs output — scenes
+ * that take longer than the old 20 s fixed window are no longer cut off.
+ *
+ * Returns both the combined MP3 path and the per-scene duration array so
+ * the renderer can set the matching frame count for each scene.
  *
  * Timeline:
- *   [scene 1 audio 20 s] [silence 0.667 s] [scene 2 audio 20 s] … [scene 6 audio 20 s]
- *   = 120 s + 5 × 0.667 s ≈ 123.33 s  (exact match to video frame count)
+ *   [scene 1 audio + buffer] [silence 0.667 s] [scene 2 audio + buffer] … [scene N]
  */
 export async function generateStoryAudio(
   scenes: { narration: string }[],
-): Promise<string> {
+): Promise<{ audioPath: string; sceneDursSec: number[] }> {
   await fs.mkdir(AUDIO_DIR, { recursive: true });
   const ts = Date.now();
 
-  // 1. Generate scene audio with limited concurrency (ElevenLabs caps
-  //    concurrent requests per plan — 3 is safe even on lower tiers)
+  // 1. Generate scene audio with limited concurrency
   console.log('[narration] Generating audio for all scenes via ElevenLabs…');
   const rawPaths = await mapWithConcurrency(
     scenes, 3, (s, i) => generateSceneAudio(s.narration, i),
   );
 
-  // 2. Pad / trim each scene to exactly SCENE_DURATION_SEC
+  // 2. Measure actual duration of each raw clip, then compute padded duration
+  const rawDurs = await Promise.all(rawPaths.map(p => probeDuration(p)));
+  const sceneDursSec = rawDurs.map(d =>
+    Math.max(MIN_SCENE_SEC, Math.ceil(d + AUDIO_BUFFER_SEC)),
+  );
+  console.log(`[narration] Per-scene durations (s): ${sceneDursSec.join(', ')}`);
+
+  // 3. Pad each scene to its computed duration (never trims)
   const paddedPaths = await Promise.all(
-    rawPaths.map(p => padToExact(p, SCENE_DURATION_SEC)),
+    rawPaths.map((p, i) => padToAtLeast(p, sceneDursSec[i])),
   );
 
-  // 3. Generate one silence clip (reused between scenes)
+  // 4. Generate one silence clip (reused between scenes)
   const silPath = await silenceClip(TITLE_CARD_DUR_SEC, String(ts));
 
-  // 4. Interleave: scene0 + silence + scene1 + silence + … + scene5
+  // 5. Interleave: scene0 + silence + scene1 + silence + … + sceneN
   const allPaths: string[] = [];
   for (let i = 0; i < paddedPaths.length; i++) {
     allPaths.push(paddedPaths[i]);
     if (i < paddedPaths.length - 1) allPaths.push(silPath);
   }
 
-  // 5. Concatenate
+  // 6. Concatenate
   const combinedPath = path.join(AUDIO_DIR, `narration-${ts}.mp3`);
   await concat(allPaths, combinedPath);
   console.log(`[narration] Combined narration → ${combinedPath}`);
 
-  // 6. Clean up temp files (non-fatal)
+  // 7. Clean up temp files (non-fatal)
   await Promise.allSettled(
     [...rawPaths, ...paddedPaths, silPath].map(p => fs.unlink(p)),
   );
 
-  return combinedPath;
+  return { audioPath: combinedPath, sceneDursSec };
 }

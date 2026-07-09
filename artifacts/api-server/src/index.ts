@@ -362,14 +362,18 @@ async function runRenderJob(job: RenderJob, char: Character): Promise<void> {
     job.story = story;
 
     // ── Narration (optional — skipped if keys not configured) ──────────────
+    let sceneDursSec: number[] | undefined;
     if (NARRATION_ENABLED) {
       console.log(`[job:${job.id}] Generating ElevenLabs narration...`);
       try {
-        audioPath = await generateStoryAudio(story.scenes);
+        const result = await generateStoryAudio(story.scenes);
+        audioPath    = result.audioPath;
+        sceneDursSec = result.sceneDursSec;
         console.log(`[job:${job.id}] Narration ready → ${audioPath}`);
       } catch (audioErr: any) {
         console.error(`[job:${job.id}] Narration failed (continuing without audio):`, audioErr.message);
-        audioPath = undefined;
+        audioPath    = undefined;
+        sceneDursSec = undefined;
       }
     } else {
       console.log(`[job:${job.id}] Skipping narration (ELEVENLABS keys not set)`);
@@ -377,7 +381,7 @@ async function runRenderJob(job: RenderJob, char: Character): Promise<void> {
 
     job.status = 'rendering';
     console.log(`[job:${job.id}] Rendering ${story.scenes.length} scenes × 30fps...`);
-    const filePath = await renderVideo(char, story, audioPath);
+    const filePath = await renderVideo(char, story, audioPath, sceneDursSec);
     const filename = path.basename(filePath);
 
     job.url = `/api/videos/${filename}`;
@@ -660,7 +664,7 @@ app.get('/api/test-narration', async (_req, res): Promise<void> => {
     const story = await generateStory(testChar);
 
     console.log('[test-narration] Generating narration for all scenes…');
-    const audioPath = await generateStoryAudio(story.scenes);
+    const { audioPath } = await generateStoryAudio(story.scenes);
 
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Content-Disposition', 'attachment; filename="kevin-narration.mp3"');
