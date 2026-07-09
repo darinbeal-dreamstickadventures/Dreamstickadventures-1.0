@@ -348,9 +348,9 @@ async function streamVideoFromGCS(filename: string, res: import('express').Respo
 
 function buildWatchUrl(filename: string): string {
   const customDomain = process.env.WATCH_DOMAIN?.trim();
-  if (customDomain) return `https://${customDomain}/api/videos/${filename}`;
+  if (customDomain) return `https://${customDomain}/api/watch/${filename}`;
   const replitDomain = (process.env.REPLIT_DOMAINS ?? '').split(',')[0].trim();
-  return `https://${replitDomain}/api/videos/${filename}`;
+  return `https://${replitDomain}/api/watch/${filename}`;
 }
 
 async function runRenderJob(job: RenderJob, char: Character): Promise<void> {
@@ -555,10 +555,28 @@ app.get('/api/render-status/:jobId', (req, res): void => {
 
 // Watch page — self-contained HTML video player
 app.get('/api/watch/:filename', async (req, res): Promise<void> => {
+  const filename = path.basename(req.params.filename);
+  const filePath = path.join(VIDEOS_DIR, filename);
+
+  // Check file exists locally or in GCS before rendering the page
+  let videoExists = false;
+  try { await fs.access(filePath); videoExists = true; } catch { /* check GCS */ }
+  if (!videoExists) {
+    try {
+      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
+      if (bucketId) {
+        const [exists] = await objectStorageClient.bucket(bucketId).file(`videos/${filename}`).exists();
+        videoExists = exists;
+      }
+    } catch { /* fall through */ }
+  }
+
+  if (!videoExists) {
+    res.status(404).send('<h1>Video not found</h1>');
+    return;
+  }
+
   try {
-    const filename = path.basename(req.params.filename);
-    const filePath = path.join(VIDEOS_DIR, filename);
-    await fs.access(filePath);
     const videoUrl = `/api/videos/${filename}`;
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(`<!DOCTYPE html>

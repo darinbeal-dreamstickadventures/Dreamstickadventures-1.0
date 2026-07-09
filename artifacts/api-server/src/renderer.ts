@@ -466,7 +466,10 @@ function drawFrame(
   //    instead of feeling pasted on top. ──
   const sk = (char.sidekick ?? '').toLowerCase();
   if (sk && sk !== 'none') {
-    const emoji = SIDEKICK_MAP[sk] ?? '✨';
+    // SIDEKICK_MAP keys are words ('unicorn', 'cat'…). If the DB stored the
+    // emoji directly (e.g. '🦄'), the word-lookup will miss — fall back to
+    // the raw stored value before using the generic sparkle default.
+    const emoji = SIDEKICK_MAP[sk] ?? char.sidekick?.trim() ?? '✨';
     const skX   = CHAR_CX + charW / 2 + 28;
     const skY   = charCY - charH * 0.12 + Math.sin(f / FPS * 2.3) * 8;
 
