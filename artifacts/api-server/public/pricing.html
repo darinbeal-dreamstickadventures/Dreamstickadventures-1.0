@@ -138,6 +138,12 @@ h2 {
   <div class="tagline">Where every child is the hero of their own story</div>
   <h2>Choose Your Adventure Plan</h2>
 
+  <div style="max-width:420px;margin:0 auto 32px;">
+    <label for="parentEmail" style="display:block;font-size:0.85rem;color:#8878bb;margin-bottom:6px;">Parent email (for your receipt and video links)</label>
+    <input type="email" id="parentEmail" placeholder="you@example.com" required
+      style="width:100%;padding:12px 14px;border-radius:10px;border:1px solid rgba(155,111,255,0.4);background:#160b30;color:#f4f0ff;font-family:'Nunito',sans-serif;font-size:1rem;">
+  </div>
+
   <div class="plans">
 
     <div class="plan">
@@ -193,14 +199,27 @@ h2 {
 </div>
 
 <script>
+(function prefillEmail() {
+  const params = new URLSearchParams(window.location.search);
+  const email = params.get('email');
+  if (email) document.getElementById('parentEmail').value = email;
+})();
+
 async function subscribe(plan, btn) {
+  const email = document.getElementById('parentEmail').value.trim();
+  if (!email || !email.includes('@')) {
+    alert('Please enter a valid email address so we know where to send your videos.');
+    document.getElementById('parentEmail').focus();
+    return;
+  }
+
   btn.disabled = true;
   btn.textContent = 'Loading...';
   try {
     const res = await fetch('/api/create-checkout-session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plan })
+      body: JSON.stringify({ plan, email })
     });
     const data = await res.json();
     if (data.url) {

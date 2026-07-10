@@ -3,6 +3,7 @@ import cors from 'cors';
 import pg from 'pg';
 import Stripe from 'stripe';
 import Anthropic from '@anthropic-ai/sdk';
+import cron from 'node-cron';
 import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
@@ -69,10 +70,11 @@ app.get('/free', (_req, res) => {
 // ── Stripe checkout ──────────────────────────────────────────────────────────
 
 app.post('/api/create-checkout-session', async (req, res): Promise<void> => {
-  const plan = (req.body.plan as string)?.toLowerCase();
+  const plan  = (req.body.plan as string)?.toLowerCase();
+  const email = (req.body.email as string)?.trim().toLowerCase();
   const priceId = PRICE_IDS[plan];
 
-  if (!priceId) {
+  if (!plan || !priceId) {
     res.status(400).json({ error: `Unknown plan: ${plan}` });
     return;
   }
@@ -85,7 +87,9 @@ app.post('/api/create-checkout-session', async (req, res): Promise<void> => {
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${origin}/api/success`,
+      ...(email ? { customer_email: email } : {}),
+      metadata: { plan, ...(email ? { email } : {}) },
+      success_url: `${origin}/api/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url:  `${origin}/api/cancel`,
     });
 
@@ -98,8 +102,36 @@ app.post('/api/create-checkout-session', async (req, res): Promise<void> => {
 
 // ── Post-payment redirects ───────────────────────────────────────────────────
 
-app.get('/api/success', (_req, res) => {
-  res.redirect('/build');
+// Retrieve the completed session server-side (never trust client-supplied
+// status) and flip the matching character(s) to active before sending the
+// subscriber on to the character builder.
+app.get('/api/success', async (req, res): Promise<void> => {
+  const sessionId = req.query.session_id as string | undefined;
+
+  if (sessionId) {
+    try {
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      const email = session.metadata?.email ?? session.customer_details?.email ?? undefined;
+      const plan  = session.metadata?.plan;
+
+      if (session.payment_status === 'paid' || session.status === 'complete') {
+        if (email) {
+          const result = await pool.query(
+            `UPDATE characters SET subscription_status = 'active'
+             WHERE parent_email = $1 AND subscription_status != 'active'`,
+            [email.toLowerCase().trim()],
+          );
+          console.log(`[stripe] Activated ${result.rowCount} character(s) for ${email} (plan: ${plan})`);
+        } else {
+          console.warn(`[stripe] Checkout session ${sessionId} completed but no email in metadata — could not activate a character`);
+        }
+      }
+    } catch (e: any) {
+      console.error('[stripe] Failed to reconcile checkout session:', e.message);
+    }
+  }
+
+  res.redirect('/form');
 });
 
 app.get('/api/cancel', (_req, res) => {
@@ -416,6 +448,86 @@ async function runRenderJob(job: RenderJob, char: Character): Promise<void> {
   }
 }
 
+// ── Nightly scheduler (7pm Mountain Time) ────────────────────────────────────
+//
+// Every night, renders and emails a fresh story to every active subscriber.
+// Runs each subscriber through the exact same story → narration → render →
+// upload → email pipeline as an on-demand job, but sequentially (one at a
+// time) rather than fire-and-forget, so a slow/failed render for one
+// subscriber can't fan out into unbounded concurrent ffmpeg processes.
+async function runNightlyJobForCharacter(char: Character & { id: number }): Promise<void> {
+  const job: RenderJob = {
+    id: randomUUID(), status: 'pending', created: Date.now(),
+    parentEmail: char.parent_email,
+    childName:   char.child_name,
+    theme:       char.theme,
+  };
+  jobs.set(job.id, job);
+
+  await runRenderJob(job, char);
+
+  if (job.status !== 'done') {
+    throw new Error(job.error ?? 'render job did not complete');
+  }
+
+  await pool.query(
+    `UPDATE characters SET last_video_sent_at = now() WHERE id = $1`,
+    [char.id],
+  );
+}
+
+async function runNightlyScheduler(): Promise<void> {
+  const startedAt = Date.now();
+  console.log(`[scheduler] Nightly run starting at ${new Date(startedAt).toISOString()}`);
+
+  let subscribers: (Character & { id: number })[] = [];
+  try {
+    const result = await pool.query(
+      `SELECT * FROM characters WHERE subscription_status = 'active' ORDER BY id ASC`,
+    );
+    subscribers = result.rows as (Character & { id: number })[];
+  } catch (e: any) {
+    console.error('[scheduler] Failed to load active subscribers, aborting run:', e.message);
+    return;
+  }
+
+  let success = 0;
+  let failures = 0;
+  const failureDetails: { characterId: number; email: string; error: string }[] = [];
+
+  for (const char of subscribers) {
+    try {
+      console.log(`[scheduler] Processing character ${char.id} (${char.child_name} / ${char.parent_email})...`);
+      await runNightlyJobForCharacter(char);
+      success++;
+    } catch (e: any) {
+      failures++;
+      failureDetails.push({ characterId: char.id, email: char.parent_email ?? 'unknown', error: e.message });
+      console.error(`[scheduler] Character ${char.id} (${char.parent_email}) failed:`, e.message);
+      // Continue on to the next subscriber — one failure must never block the rest of the run.
+    }
+  }
+
+  const durationSec = ((Date.now() - startedAt) / 1000).toFixed(1);
+  console.log(
+    `[scheduler] Nightly run complete in ${durationSec}s — processed=${subscribers.length} success=${success} failures=${failures}`,
+  );
+  if (failureDetails.length > 0) {
+    console.error('[scheduler] Failure details:', JSON.stringify(failureDetails));
+  }
+}
+
+// Runs at 7:00 PM Mountain Time every night (node-cron resolves DST via the IANA zone).
+cron.schedule('0 19 * * *', () => {
+  runNightlyScheduler().catch((e: any) => console.error('[scheduler] Unhandled error in nightly run:', e.message));
+}, { timezone: 'America/Denver' });
+
+// Manual trigger for testing the nightly pipeline without waiting for 7pm.
+app.post('/api/admin/run-nightly-scheduler', async (_req, res): Promise<void> => {
+  runNightlyScheduler().catch((e: any) => console.error('[scheduler] Unhandled error in manual run:', e.message));
+  res.json({ success: true, message: 'Nightly scheduler run started in the background — check server logs for progress.' });
+});
+
 // Start a render job for a DB character
 app.post('/api/render-video', async (req, res): Promise<void> => {
   try {
@@ -452,13 +564,38 @@ app.post('/api/render-video', async (req, res): Promise<void> => {
 
 // ── Free sample video ─────────────────────────────────────────────────────────
 
+// In-memory per-IP rate limit: 1 free-video request per IP per hour.
+// A plain Map is sufficient here — this is a single-instance API server with
+// no horizontal scaling, and the limit only needs to survive within a process.
+const FREE_VIDEO_IP_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const freeVideoIpRequests = new Map<string, number>(); // ip -> last request timestamp
+
+// Periodically sweep stale entries so the map doesn't grow unbounded
+setInterval(() => {
+  const cutoff = Date.now() - FREE_VIDEO_IP_WINDOW_MS;
+  for (const [ip, ts] of freeVideoIpRequests) {
+    if (ts < cutoff) freeVideoIpRequests.delete(ip);
+  }
+}, 15 * 60 * 1000);
+
+function getClientIp(req: express.Request): string {
+  // Trust X-Forwarded-For's first entry when present (behind Replit's proxy),
+  // otherwise fall back to the socket address.
+  const fwd = req.headers['x-forwarded-for'];
+  if (typeof fwd === 'string' && fwd.length > 0) return fwd.split(',')[0].trim();
+  return req.socket.remoteAddress ?? 'unknown';
+}
+
 app.post('/api/free-video', async (req, res): Promise<void> => {
+  const ip = getClientIp(req);
+
   try {
-    const { child_name, character_type, theme, parent_email } = req.body as {
+    const { child_name, character_type, theme, parent_email, child_age } = req.body as {
       child_name: string;
       character_type?: string;
       theme: string;
       parent_email: string;
+      child_age?: number;
     };
 
     if (!child_name || !theme || !parent_email) {
@@ -466,7 +603,18 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
       return;
     }
 
-    // Check if this email has already claimed a free video
+    // ── Rate limit: 1 request per IP per hour ─────────────────────────────
+    const lastRequest = freeVideoIpRequests.get(ip);
+    if (lastRequest !== undefined && Date.now() - lastRequest < FREE_VIDEO_IP_WINDOW_MS) {
+      console.warn(`[free-video] Rate limit violation — ip=${ip} at ${new Date().toISOString()}`);
+      res.status(429).json({
+        success: false,
+        error: 'You have already requested a free video recently. Please check your inbox or try again later.',
+      });
+      return;
+    }
+
+    // Check if this email has already claimed a free video (max 1 per email, ever)
     const existing = await pool.query(
       `SELECT id FROM characters WHERE parent_email = $1 AND subscription_status = 'free-sample' LIMIT 1`,
       [parent_email.toLowerCase().trim()],
@@ -476,6 +624,14 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
       return;
     }
 
+    // Only mark the IP as "used" once we know the request will actually
+    // trigger a render (an already-claimed email doesn't burn the IP's slot).
+    freeVideoIpRequests.set(ip, Date.now());
+
+    // Default to 6 when the form doesn't collect an age — avoids the
+    // child_age NOT NULL constraint violation.
+    const resolvedAge = Number.isFinite(child_age) && (child_age as number) > 0 ? Number(child_age) : 6;
+
     // Save character to DB
     const insertResult = await pool.query(
       `INSERT INTO characters (parent_email, child_name, child_age, character_type, build, sidekick, theme, subscription_status)
@@ -484,7 +640,7 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
       [
         parent_email.toLowerCase().trim(),
         child_name.trim(),
-        7,
+        resolvedAge,
         character_type ?? 'boy',
         'average',
         'dragon',
@@ -494,7 +650,7 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
 
     const char: Character = {
       child_name: child_name.trim(),
-      child_age:  7,
+      child_age:  resolvedAge,
       character_type: character_type ?? 'boy',
       build:    'average',
       sidekick: 'dragon',

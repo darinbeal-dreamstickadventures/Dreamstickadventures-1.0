@@ -588,7 +588,7 @@ function drawFrame(
 
 type BgSource =
   | { kind: 'image'; image: Image }
-  | { kind: 'video'; framesDir: string; frameCount: number; _idx: number; _img: Image | null };
+  | { kind: 'video'; framesDir: string; frameCount: number; _idx: number; _img: Image | null; sourcePath: string };
 
 /**
  * Extract frames from an MP4 clip into JPEG files scaled to the given
@@ -654,7 +654,7 @@ async function loadBg(theme: string, used: Set<number>): Promise<BgSource> {
       console.log(`[renderer] Extracting bg frames: ${mp4}`);
       const frameCount = await extractVideoFramesLimited(mp4, outDir, W, H);
       console.log(`[renderer] Extracted ${frameCount} bg frames`);
-      return { kind: 'video', framesDir: outDir, frameCount, _idx: -1, _img: null };
+      return { kind: 'video', framesDir: outDir, frameCount, _idx: -1, _img: null, sourcePath: mp4 };
     } catch { /* not found or extraction failed — try next */ }
   }
 
@@ -666,6 +666,161 @@ async function loadBg(theme: string, used: Set<number>): Promise<BgSource> {
   }
 
   throw new Error(`No background assets for theme "${theme}" in ${dir}`);
+}
+
+// ── Background music (extracted from background video clips) ─────────────────
+
+const AUDIO_TMP_DIR = '/tmp/dreamstick-audio';
+
+/** Extract (or loop-extend) a background clip's audio track to exactly `durationSec` seconds. */
+async function extractBgAudioSegment(
+  videoPath: string, durationSec: number, outPath: string,
+): Promise<boolean> {
+  await fs.mkdir(path.dirname(outPath), { recursive: true });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn('ffmpeg', [
+        '-y',
+        '-stream_loop', '-1',      // loop the source so short clips still cover long scenes
+        '-i', videoPath,
+        '-t', durationSec.toFixed(3),
+        '-vn',
+        '-ac', '2', '-ar', '44100',
+        outPath,
+      ]);
+      const err: string[] = [];
+      proc.stderr.on('data', (d: Buffer) => err.push(d.toString()));
+      proc.on('close', (code: number) =>
+        code === 0 ? resolve()
+          : reject(new Error(`ffmpeg bg-audio-extract exit ${code}: ${err.join('').slice(-400)}`)),
+      );
+      proc.on('error', reject);
+    });
+    return true;
+  } catch (e) {
+    // Some background clips may have no audio track at all — that's fine,
+    // we just skip music for that segment.
+    console.warn(`[renderer] No usable audio in ${videoPath}, skipping bg music for this segment: ${(e as Error).message}`);
+    return false;
+  }
+}
+
+/** Generate a silent stereo WAV of the given duration (used for title-card gaps / missing bg audio). */
+async function generateSilence(durationSec: number, outPath: string): Promise<void> {
+  await fs.mkdir(path.dirname(outPath), { recursive: true });
+  await new Promise<void>((resolve, reject) => {
+    const proc = spawn('ffmpeg', [
+      '-y',
+      '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+      '-t', Math.max(0.05, durationSec).toFixed(3),
+      outPath,
+    ]);
+    const err: string[] = [];
+    proc.stderr.on('data', (d: Buffer) => err.push(d.toString()));
+    proc.on('close', (code: number) =>
+      code === 0 ? resolve() : reject(new Error(`ffmpeg silence-gen exit ${code}: ${err.join('').slice(-400)}`)),
+    );
+    proc.on('error', reject);
+  });
+}
+
+/** Concatenate a list of WAV segments (in order) into a single track. */
+async function concatAudioSegments(segmentPaths: string[], outPath: string): Promise<void> {
+  await fs.mkdir(path.dirname(outPath), { recursive: true });
+  const listPath = outPath.replace(/\.wav$/, '-list.txt');
+  const listContent = segmentPaths.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
+  await fs.writeFile(listPath, listContent, 'utf8');
+  await new Promise<void>((resolve, reject) => {
+    const proc = spawn('ffmpeg', [
+      '-y', '-f', 'concat', '-safe', '0', '-i', listPath,
+      '-ac', '2', '-ar', '44100',
+      outPath,
+    ]);
+    const err: string[] = [];
+    proc.stderr.on('data', (d: Buffer) => err.push(d.toString()));
+    proc.on('close', (code: number) =>
+      code === 0 ? resolve() : reject(new Error(`ffmpeg concat exit ${code}: ${err.join('').slice(-400)}`)),
+    );
+    proc.on('error', reject);
+  });
+  await fs.unlink(listPath).catch(() => {});
+}
+
+/**
+ * Build a single background-music track spanning the whole video (scenes +
+ * title-card gaps), stitched together from each scene's own background clip
+ * audio so the music timing tracks the visuals scene-by-scene.
+ */
+async function buildBackgroundMusicTrack(
+  bgs: BgSource[], sceneDurationsSec: number[], titleCardGapSec: number, outPath: string,
+): Promise<string | null> {
+  const workDir = path.join(AUDIO_TMP_DIR, `bgmusic-${Date.now()}`);
+  const segments: string[] = [];
+  let anyRealAudio = false;
+
+  try {
+    for (let i = 0; i < bgs.length; i++) {
+      const bg = bgs[i];
+      const dur = sceneDurationsSec[i] ?? 20;
+      const segPath = path.join(workDir, `seg${i}.wav`);
+
+      const ok = bg.kind === 'video'
+        ? await extractBgAudioSegment(bg.sourcePath, dur, segPath)
+        : false;
+
+      if (ok) {
+        anyRealAudio = true;
+        segments.push(segPath);
+      } else {
+        await generateSilence(dur, segPath);
+        segments.push(segPath);
+      }
+
+      // Gap for the title card between this scene and the next
+      if (i < bgs.length - 1) {
+        const gapPath = path.join(workDir, `gap${i}.wav`);
+        await generateSilence(titleCardGapSec, gapPath);
+        segments.push(gapPath);
+      }
+    }
+
+    if (!anyRealAudio) return null; // nothing to mix — every clip was silent/imageless
+
+    await concatAudioSegments(segments, outPath);
+    return outPath;
+  } finally {
+    await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Mix background music under narration: narration stays at 100% volume,
+ * background music is attenuated to 25% so it never competes with the
+ * spoken story. Output duration matches the narration track (`shortest`)
+ * so a slightly-longer music bed never appends silence to the end.
+ */
+async function mixNarrationWithMusic(
+  narrationPath: string, musicPath: string, outPath: string,
+): Promise<void> {
+  await fs.mkdir(path.dirname(outPath), { recursive: true });
+  await new Promise<void>((resolve, reject) => {
+    const proc = spawn('ffmpeg', [
+      '-y',
+      '-i', narrationPath,
+      '-i', musicPath,
+      '-filter_complex',
+      '[0:a]volume=1.0[narr];[1:a]volume=0.25[music];[narr][music]amix=inputs=2:duration=first:dropout_transition=0[aout]',
+      '-map', '[aout]',
+      '-ac', '2', '-ar', '44100',
+      outPath,
+    ]);
+    const err: string[] = [];
+    proc.stderr.on('data', (d: Buffer) => err.push(d.toString()));
+    proc.on('close', (code: number) =>
+      code === 0 ? resolve() : reject(new Error(`ffmpeg mix exit ${code}: ${err.join('').slice(-600)}`)),
+    );
+    proc.on('error', reject);
+  });
 }
 
 // ── Merge audio into video ────────────────────────────────────────────────────
@@ -852,13 +1007,40 @@ export async function renderVideo(
 
   await done;
 
-  // ── Merge narration audio if provided ────────────────────────────────────
+  // ── Merge narration audio (+ background music) if provided ───────────────
   let finalPath = outPath;
   if (audioPath) {
     finalPath = outPath.replace(/\.mp4$/, '-narrated.mp4');
-    console.log('[renderer] Merging narration audio…');
-    await mergeAudio(outPath, audioPath, finalPath);
+
+    // Mix in background music extracted from each scene's own background
+    // clip, ducked under the narration at 25% volume. Falls back to plain
+    // narration if none of the scene backgrounds have a usable audio track.
+    let mixedAudioPath = audioPath;
+    const titleCardGapSec = TITLE_CARD_FRAMES / FPS;
+    try {
+      const musicWorkDir = path.join(AUDIO_TMP_DIR, `render-${Date.now()}`);
+      const musicTrackPath = path.join(musicWorkDir, 'music.wav');
+      const musicPath = await buildBackgroundMusicTrack(
+        bgs, framesPerScene.map(fr => fr / FPS), titleCardGapSec, musicTrackPath,
+      );
+      if (musicPath) {
+        console.log('[renderer] Mixing background music (25%) under narration (100%)…');
+        const mixedPath = path.join(musicWorkDir, 'mixed.wav');
+        await mixNarrationWithMusic(audioPath, musicPath, mixedPath);
+        mixedAudioPath = mixedPath;
+      } else {
+        console.warn('[renderer] No background audio available — using narration only');
+      }
+    } catch (e) {
+      console.error('[renderer] Background music mixing failed, falling back to narration only:', (e as Error).message);
+    }
+
+    console.log('[renderer] Merging final audio track…');
+    await mergeAudio(outPath, mixedAudioPath, finalPath);
     await fs.unlink(outPath).catch(() => {});
+    if (mixedAudioPath !== audioPath) {
+      await fs.rm(path.dirname(mixedAudioPath), { recursive: true, force: true }).catch(() => {});
+    }
     console.log('[renderer] Audio merged → ' + finalPath);
   }
 
