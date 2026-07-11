@@ -25,3 +25,4 @@ artifacts/dreamstick/public/videos/lucy-1783569391485-narrated.mp4 filter=lfs di
 artifacts/dreamstick/public/videos/jane-1783570120122-narrated.mp4 filter=lfs diff=lfs merge=lfs -text
 artifacts/dreamstick/public/videos/musictest-1783656256359-narrated.mp4 filter=lfs diff=lfs merge=lfs -text
 artifacts/dreamstick/public/videos/ratetest1-1783656047668-narrated.mp4 filter=lfs diff=lfs merge=lfs -text
+artifacts/dreamstick/public/videos/jane-1783742096495-narrated.mp4 filter=lfs diff=lfs merge=lfs -text
