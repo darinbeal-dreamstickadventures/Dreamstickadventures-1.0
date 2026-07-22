@@ -48,6 +48,10 @@ const PRICE_IDS: Record<string, string> = {
 };
 
 const app = express();
+// Trust the first hop from Replit's reverse proxy so req.ip / X-Forwarded-For
+// reflect the real visitor IP rather than the internal proxy address.
+// Without this, every user looks identical to the rate limiter.
+app.set('trust proxy', 1);
 app.use(cors());
 app.use(express.json());
 
@@ -288,7 +292,11 @@ app.post('/api/generate-story', async (req, res): Promise<void> => {
   }
 });
 
-app.get('/api/test-story', async (_req, res): Promise<void> => {
+app.get('/api/test-story', async (req, res): Promise<void> => {
+  const adminToken = process.env.ADMIN_SECRET_TOKEN;
+  if (!adminToken || req.headers['x-admin-token'] !== adminToken) {
+    res.status(401).json({ error: 'Unauthorized' }); return;
+  }
   try {
     const testChar: Character = {
       child_name: 'Kevin',
@@ -523,7 +531,13 @@ cron.schedule('0 19 * * *', () => {
 }, { timezone: 'America/Denver' });
 
 // Manual trigger for testing the nightly pipeline without waiting for 7pm.
-app.post('/api/admin/run-nightly-scheduler', async (_req, res): Promise<void> => {
+// Protected by a secret token supplied in the X-Admin-Token header.
+app.post('/api/admin/run-nightly-scheduler', async (req, res): Promise<void> => {
+  const adminToken = process.env.ADMIN_SECRET_TOKEN;
+  if (!adminToken || req.headers['x-admin-token'] !== adminToken) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
   runNightlyScheduler().catch((e: any) => console.error('[scheduler] Unhandled error in manual run:', e.message));
   res.json({ success: true, message: 'Nightly scheduler run started in the background — check server logs for progress.' });
 });
@@ -675,6 +689,10 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
 
 // Start a test render job (Kevin, no DB)
 app.post('/api/test-video', async (req, res): Promise<void> => {
+  const adminToken = process.env.ADMIN_SECRET_TOKEN;
+  if (!adminToken || req.headers['x-admin-token'] !== adminToken) {
+    res.status(401).json({ error: 'Unauthorized' }); return;
+  }
   const testChar: Character = {
     child_name: 'Kevin',
     child_age: 6,
@@ -800,7 +818,11 @@ app.get('/api/videos/:filename', async (req, res): Promise<void> => {
 
 // ── Test narration (audio only, no video render) ──────────────────────────────
 
-app.get('/api/test-narration', async (_req, res): Promise<void> => {
+app.get('/api/test-narration', async (req, res): Promise<void> => {
+  const adminToken = process.env.ADMIN_SECRET_TOKEN;
+  if (!adminToken || req.headers['x-admin-token'] !== adminToken) {
+    res.status(401).json({ error: 'Unauthorized' }); return;
+  }
   if (!process.env.ELEVENLABS_API_KEY || !process.env.ELEVENLABS_VOICE_ID) {
     res.status(503).json({
       error: 'ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID must both be set',
