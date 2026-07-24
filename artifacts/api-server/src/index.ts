@@ -71,6 +71,14 @@ app.get('/free', (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'free.html'));
 });
 
+app.get('/privacy', (_req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'privacy.html'));
+});
+
+app.get('/terms', (_req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'terms.html'));
+});
+
 // ── Stripe checkout ──────────────────────────────────────────────────────────
 
 app.post('/api/create-checkout-session', async (req, res): Promise<void> => {
