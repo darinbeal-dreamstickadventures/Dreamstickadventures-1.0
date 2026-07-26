@@ -3,6 +3,7 @@ import type { Canvas, Image, SKRSContext2D } from '@napi-rs/canvas';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
+import { readdirSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 
 const __rendererFilename = fileURLToPath(import.meta.url);
@@ -18,7 +19,6 @@ const __rendererDirname  = path.dirname(__rendererFilename);
  */
 const EMOJI_FONT_FAMILY = 'OpenMoji';
 try {
-  const { readdirSync, existsSync } = await import('fs');
   const nixEntries = readdirSync('/nix/store');
   const openmojiDir = nixEntries.find(e => e.includes('openmoji') && !e.endsWith('.drv'));
   const fontPath = openmojiDir

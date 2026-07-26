@@ -1,3 +1,5 @@
 - [napi-rs/canvas frame-write memory leak](napi-canvas-getimagedata-leak.md) — per-frame video rendering must use `canvas.data()`, never `ctx.getImageData()`, or the process OOMs on long renders.
 - [Render job concurrency & OOM](render-job-extraction-concurrency.md) — cap concurrent ffmpeg frame-extraction processes; overlapping/retried render jobs can stack orphaned extractions and OOM the server.
 - [Stripe checkout ↔ character linking](stripe-checkout-character-linking.md) — no webhook secret configured, so checkout completion is reconciled via session-retrieval + metadata email, not a webhook handler.
+- [ESM top-level await kills production server silently](esm-toplevel-await-production.md) — any top-level await in a module bundled by esbuild causes the entire entry to be async; server never reaches listen() within timeout, with zero log output.
+- [pnpm prune strips native optional binaries](pnpm-prune-native-optionals.md) — pnpm prune --prod removes optionalDependencies of production packages (e.g. @napi-rs/canvas-linux-x64-gnu); add them as direct deps to survive prune.
