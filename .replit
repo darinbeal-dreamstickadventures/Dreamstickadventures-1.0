@@ -26,3 +26,6 @@ channel = "stable-25_05"
 
 [userenv.shared]
 ADMIN_SECRET_TOKEN = "d87b0d08483345415640895b1351756ced31234f8844d3568cedabeb6e5c16fe"
+
+[objectStorage]
+defaultBucketID = "replit-objstore-78bb6692-05d4-4021-b2a1-2f2cf77205fb"
