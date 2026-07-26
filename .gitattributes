@@ -27,9 +27,3 @@ artifacts/dreamstick/public/videos/musictest-1783656256359-narrated.mp4 filter=l
 artifacts/dreamstick/public/videos/ratetest1-1783656047668-narrated.mp4 filter=lfs diff=lfs merge=lfs -text
 artifacts/dreamstick/public/videos/jane-1783742096495-narrated.mp4 filter=lfs diff=lfs merge=lfs -text
 artifacts/dreamstick/public/videos/jane-1783742502189-narrated.mp4 filter=lfs diff=lfs merge=lfs -text
-artifacts/dreamstick/public/videos/iptest-1784755230533-narrated.mp4 filter=lfs diff=lfs merge=lfs -text
-artifacts/dreamstick/public/videos/jane-1784768413520-narrated.mp4 filter=lfs diff=lfs merge=lfs -text
-artifacts/dreamstick/public/videos/jane-1784854816466-narrated.mp4 filter=lfs diff=lfs merge=lfs -text
-artifacts/dreamstick/public/videos/sofia-1784857069900-narrated.mp4 filter=lfs diff=lfs merge=lfs -text
-artifacts/dreamstick/public/videos/jane-1784861355028-narrated.mp4 filter=lfs diff=lfs merge=lfs -text
-artifacts/dreamstick/public/videos/jane-1784941217659-narrated.mp4 filter=lfs diff=lfs merge=lfs -text

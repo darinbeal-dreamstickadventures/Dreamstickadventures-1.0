@@ -21,7 +21,7 @@ kind = "api"
   NODE_ENV = "production"
 
   [services.production.run]
-  args = ["node", "--enable-source-maps", "artifacts/api-server/dist/startup.mjs"]
+  args = ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
 
   [services.production.run.env]
   PORT = "8080"
@@ -29,3 +29,4 @@ kind = "api"
 
   [services.production.health.startup]
   path = "/api/health"
+  

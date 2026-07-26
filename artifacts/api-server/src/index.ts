@@ -53,53 +53,6 @@ const app = express();
 // Without this, every user looks identical to the rate limiter.
 app.set('trust proxy', 1);
 app.use(cors());
-
-// ── Stripe webhook (must come before express.json — needs raw body for sig verification) ──
-app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res): Promise<void> => {
-  const sig = req.headers['stripe-signature'];
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
-
-  if (!secret) {
-    console.error('[webhook] STRIPE_WEBHOOK_SECRET not set — ignoring event');
-    res.status(500).json({ error: 'Webhook secret not configured' });
-    return;
-  }
-
-  let event: import('stripe').Stripe.Event;
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig as string, secret);
-  } catch (e: any) {
-    console.error('[webhook] Signature verification failed:', e.message);
-    res.status(400).json({ error: `Webhook signature invalid: ${e.message}` });
-    return;
-  }
-
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object as import('stripe').Stripe.Checkout.Session;
-    const email = session.metadata?.email ?? session.customer_details?.email ?? null;
-    const plan  = session.metadata?.plan ?? 'unknown';
-
-    if (email && (session.payment_status === 'paid' || session.status === 'complete')) {
-      try {
-        const result = await pool.query(
-          `UPDATE characters SET subscription_status = 'active'
-           WHERE parent_email = $1 AND subscription_status != 'active'`,
-          [email.toLowerCase().trim()],
-        );
-        console.log(`[webhook] Activated ${result.rowCount} character(s) for ${email} (plan: ${plan})`);
-      } catch (e: any) {
-        console.error('[webhook] DB update failed:', e.message);
-        res.status(500).json({ error: 'DB update failed' });
-        return;
-      }
-    } else {
-      console.warn(`[webhook] checkout.session.completed — no email or unpaid (status: ${session.payment_status})`);
-    }
-  }
-
-  res.json({ received: true });
-});
-
 app.use(express.json());
 
 // ── Static pages (public/ lives one level above src/) ────────────────────────
@@ -116,14 +69,6 @@ app.get('/form', (_req, res) => {
 
 app.get('/free', (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'free.html'));
-});
-
-app.get('/privacy', (_req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, 'privacy.html'));
-});
-
-app.get('/terms', (_req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, 'terms.html'));
 });
 
 // ── Stripe checkout ──────────────────────────────────────────────────────────

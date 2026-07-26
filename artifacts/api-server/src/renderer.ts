@@ -3,7 +3,6 @@ import type { Canvas, Image, SKRSContext2D } from '@napi-rs/canvas';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
-import { readdirSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 
 const __rendererFilename = fileURLToPath(import.meta.url);
@@ -13,22 +12,16 @@ const __rendererDirname  = path.dirname(__rendererFilename);
  * The base OS image has no emoji-capable fonts installed (only DejaVu), so
  * sidekick emoji were silently rendering as blank "tofu" glyphs. OpenMoji
  * Black is a monochrome outline emoji font (glyf-based, not a COLR/CBDT
- * color font), which @napi-rs/canvas can rasterize reliably. We scan the
- * Nix store dynamically so the path survives package hash changes across
- * Nix channel updates.
+ * color font), which @napi-rs/canvas can rasterize reliably — registered
+ * directly from its Nix store path since fontconfig hasn't indexed
+ * newly-added Nix packages without a full container rebuild.
  */
 const EMOJI_FONT_FAMILY = 'OpenMoji';
 try {
-  const nixEntries = readdirSync('/nix/store');
-  const openmojiDir = nixEntries.find(e => e.includes('openmoji') && !e.endsWith('.drv'));
-  const fontPath = openmojiDir
-    ? `/nix/store/${openmojiDir}/share/fonts/truetype/OpenMoji-black-glyf.ttf`
-    : null;
-  if (fontPath && existsSync(fontPath)) {
-    GlobalFonts.registerFromPath(fontPath, EMOJI_FONT_FAMILY);
-  } else {
-    console.error('[renderer] OpenMoji font not found in Nix store — sidekick emoji may not render');
-  }
+  GlobalFonts.registerFromPath(
+    '/nix/store/bryizcnj2q42wxjw7sm85z8jncckgvs1-openmoji-15.1.0/share/fonts/truetype/OpenMoji-black-glyf.ttf',
+    EMOJI_FONT_FAMILY,
+  );
 } catch (e) {
   console.error('[renderer] Failed to register emoji font, sidekick emoji may not render:', e);
 }
