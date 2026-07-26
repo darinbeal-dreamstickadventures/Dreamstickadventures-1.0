@@ -18,7 +18,7 @@ localPort = 20142
 run = "pnpm --filter @workspace/dreamstick run dev"
 
 [services.production]
-build = ["sh", "-c", "pnpm --filter @workspace/dreamstick run build && CI=true pnpm prune --prod && CI=true pnpm store prune"]
+build = ["sh", "-c", "pnpm --filter @workspace/dreamstick run build"]
 publicDir = "artifacts/dreamstick/dist/public"
 serve = "static"
 
