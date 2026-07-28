@@ -303,6 +303,34 @@ select option { background: #160930; }
           </div>
           <input type="hidden" id="character_type" value="boy">
         </div>
+
+        <div class="field">
+          <label>Child's Age</label>
+          <select id="child_age">
+            <option value="3">3 years old</option>
+            <option value="4">4 years old</option>
+            <option value="5">5 years old</option>
+            <option value="6" selected>6 years old</option>
+            <option value="7">7 years old</option>
+            <option value="8">8 years old</option>
+            <option value="9">9 years old</option>
+            <option value="10">10 years old</option>
+            <option value="11">11 years old</option>
+            <option value="12">12 years old</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Sidekick</label>
+          <select id="sidekick">
+            <option value="none">No sidekick</option>
+            <option value="dog">🐶 Dog</option>
+            <option value="cat">🐱 Cat</option>
+            <option value="dragon">🐉 Dragon</option>
+            <option value="robot">🤖 Robot</option>
+            <option value="unicorn">🦄 Unicorn</option>
+          </select>
+        </div>
       </div>
 
       <div class="card">
@@ -445,7 +473,14 @@ async function submitFree(e) {
     const res = await fetch('/api/free-video', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ child_name: childName, character_type: charType, theme, parent_email: parentEmail }),
+      body: JSON.stringify({
+        child_name: childName,
+        character_type: charType,
+        theme,
+        parent_email: parentEmail,
+        child_age: parseInt(document.getElementById('child_age').value, 10),
+        sidekick: document.getElementById('sidekick').value,
+      }),
     });
     const data = await res.json();
 
