@@ -650,10 +650,22 @@ async function loadBg(theme: string, used: Set<number>): Promise<BgSource> {
     const mp4 = path.join(dir, `bg${n}.mp4`);
     try {
       await fs.access(mp4);
-      const outDir = path.join(BG_FRAMES_DIR, `${theme}-bg${n}-${Date.now()}`);
-      console.log(`[renderer] Extracting bg frames: ${mp4}`);
-      const frameCount = await extractVideoFramesLimited(mp4, outDir, W, H);
-      console.log(`[renderer] Extracted ${frameCount} bg frames`);
+      const outDir = path.join(BG_FRAMES_DIR, `${theme}-bg${n}-${W}x${H}`);
+      // Reuse cached frames if they already exist (bg assets never change)
+      let frameCount: number;
+      let fromCache = false;
+      try {
+        const cached = await fs.readdir(outDir);
+        frameCount = cached.filter(f => f.endsWith('.jpg')).length;
+        if (frameCount > 0) { fromCache = true; }
+      } catch { frameCount = 0; }
+      if (!fromCache) {
+        console.log(`[renderer] Extracting bg frames: ${mp4}`);
+        frameCount = await extractVideoFramesLimited(mp4, outDir, W, H);
+        console.log(`[renderer] Extracted ${frameCount} bg frames`);
+      } else {
+        console.log(`[renderer] Using cached bg frames (${frameCount}) for ${mp4}`);
+      }
       return { kind: 'video', framesDir: outDir, frameCount, _idx: -1, _img: null, sourcePath: mp4 };
     } catch { /* not found or extraction failed — try next */ }
   }
@@ -809,7 +821,7 @@ async function mixNarrationWithMusic(
       '-i', narrationPath,
       '-i', musicPath,
       '-filter_complex',
-      '[0:a]volume=1.0[narr];[1:a]volume=0.25[music];[narr][music]amix=inputs=2:duration=first:dropout_transition=0[aout]',
+      '[0:a]volume=1.0[narr];[1:a]volume=0.15[music];[narr][music]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]',
       '-map', '[aout]',
       '-ac', '2', '-ar', '44100',
       outPath,
@@ -916,10 +928,8 @@ export async function renderVideo(
     if (!ok) await new Promise<void>(r => ff.stdin.once('drain', r));
   };
 
+  // Only pose dirs are temporary — bg dirs are a persistent cache and must not be deleted.
   const tempDirs: string[] = [
-    ...bgs
-      .filter((b): b is Extract<BgSource, { kind: 'video' }> => b.kind === 'video')
-      .map(b => b.framesDir),
     ...Object.values(poses)
       .filter((p): p is Extract<PoseSource, { kind: 'video' }> => p.kind === 'video')
       .map(p => p.framesDir),
