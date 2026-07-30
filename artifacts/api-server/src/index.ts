@@ -25,6 +25,9 @@ process.on('unhandledRejection', (reason) => {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Use bundled static ffmpeg binary
+process.env.PATH = path.resolve(__dirname, '../bin') + ':' + (process.env.PATH ?? '');
+
 const { Pool } = pg;
 
 if (!process.env.DATABASE_URL) {
