@@ -239,10 +239,22 @@ async function loadPose(dir: string, name: string): Promise<PoseSource> {
   const mp4 = path.join(dir, `${name}.mp4`);
   try {
     await fs.access(mp4);
-    const outDir = path.join(POSE_FRAMES_DIR, `${path.basename(dir)}-${name}-${Date.now()}`);
-    console.log(`[renderer] Extracting pose frames (colorkeyed): ${mp4}`);
-    const frameCount = await extractPoseFramesKeyedLimited(mp4, outDir, BASE_CHAR_W, BASE_CHAR_H);
-    console.log(`[renderer] Extracted ${frameCount} pose frames for "${name}"`);
+    const outDir = path.join(POSE_FRAMES_DIR, `${path.basename(dir)}-${name}-${BASE_CHAR_W}x${BASE_CHAR_H}`);
+    // Reuse cached frames if they already exist (pose assets never change)
+    let frameCount: number;
+    let fromCache = false;
+    try {
+      const cached = await fs.readdir(outDir);
+      frameCount = cached.filter(f => f.endsWith('.png')).length;
+      if (frameCount > 0) { fromCache = true; }
+    } catch { frameCount = 0; }
+    if (!fromCache) {
+      console.log(`[renderer] Extracting pose frames (colorkeyed): ${mp4}`);
+      frameCount = await extractPoseFramesKeyedLimited(mp4, outDir, BASE_CHAR_W, BASE_CHAR_H);
+      console.log(`[renderer] Extracted ${frameCount} pose frames for "${name}"`);
+    } else {
+      console.log(`[renderer] Using cached pose frames (${frameCount}) for "${name}"`);
+    }
     return { kind: 'video', framesDir: outDir, frameCount, _idx: -1, _img: null };
   } catch { /* no clip — fall back to PNG */ }
   return { kind: 'image', image: await loadImage(path.join(dir, `${name}.png`)) };
@@ -928,12 +940,9 @@ export async function renderVideo(
     if (!ok) await new Promise<void>(r => ff.stdin.once('drain', r));
   };
 
-  // Only pose dirs are temporary — bg dirs are a persistent cache and must not be deleted.
-  const tempDirs: string[] = [
-    ...Object.values(poses)
-      .filter((p): p is Extract<PoseSource, { kind: 'video' }> => p.kind === 'video')
-      .map(p => p.framesDir),
-  ];
+  // Both bg and pose frame dirs are persistent caches — never deleted between renders.
+  // They persist for the life of the process so subsequent renders skip extraction entirely.
+  const tempDirs: string[] = [];
 
   // Tracks when the current pose started so animated clips loop from frame 0
   // whenever the pose changes. Uses a monotonic globalFrame counter so it stays
