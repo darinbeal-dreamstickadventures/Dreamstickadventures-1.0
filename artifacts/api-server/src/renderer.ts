@@ -149,7 +149,7 @@ export interface RenderStory {
 
 type PoseSource =
   | { kind: 'image'; image: Image }
-  | { kind: 'video'; framesDir: string; frameCount: number; _idx: number; _img: Image | null };
+  | { kind: 'video'; framesDir: string; frameCount: number; _idx: number; _img: Image | null; frames: Image[] };
 
 interface PoseSet {
   run: PoseSource; curious: PoseSource; heroic: PoseSource;
@@ -255,7 +255,18 @@ async function loadPose(dir: string, name: string): Promise<PoseSource> {
     } else {
       console.log(`[renderer] Using cached pose frames (${frameCount}) for "${name}"`);
     }
-    return { kind: 'video', framesDir: outDir, frameCount, _idx: -1, _img: null };
+    // Pre-load all pose frames into memory so getPoseImage does zero disk I/O
+    // during canvas rendering. Without this, the single-slot cache never hits
+    // during cycling playback (consecutive idx values are always different),
+    // meaning every canvas frame would call loadImage(PNG) from disk —
+    // ~3,300 PNG reads for a 110-second render, taking ~1–1.5 h.
+    // Pre-loading ~121 frames × 452 KB each ≈ 54 MB per pose (380 MB for 7 poses).
+    console.log(`[renderer] Pre-loading ${frameCount} pose frames into memory for "${name}"`);
+    const frames: Image[] = [];
+    for (let i = 0; i < frameCount; i++) {
+      frames.push(await loadImage(path.join(outDir, `frame${String(i + 1).padStart(5, '0')}.png`)));
+    }
+    return { kind: 'video', framesDir: outDir, frameCount, _idx: -1, _img: null, frames };
   } catch { /* no clip — fall back to PNG */ }
   return { kind: 'image', image: await loadImage(path.join(dir, `${name}.png`)) };
 }
@@ -291,12 +302,11 @@ function pickPose(mood: Mood, f: number, isLastScene: boolean, poses: PoseSet): 
 async function getPoseImage(src: PoseSource, localFrame: number): Promise<Image> {
   if (src.kind === 'image') return src.image;
   const idx = localFrame % src.frameCount;
-  if (src._idx === idx && src._img) return src._img;
-  src._img = await loadImage(
-    path.join(src.framesDir, `frame${String(idx + 1).padStart(5, '0')}.png`),
-  );
-  src._idx = idx;
-  return src._img;
+  // Frames are pre-loaded in loadPose — return directly from the array.
+  // The same Image object is returned for the same idx on every cycle, so
+  // silhouetteCache (WeakMap keyed by Image identity) now hits on the second
+  // and all subsequent loops — eliminating per-frame silhouette canvas creation.
+  return src.frames[idx];
 }
 
 // ── Particle system ───────────────────────────────────────────────────────────
