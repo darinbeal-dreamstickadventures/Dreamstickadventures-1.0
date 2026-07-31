@@ -121,6 +121,11 @@ app.get('/free', (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'free.html'));
 });
 
+// /sample was a placeholder URL in old confirmation emails — redirect gracefully
+app.get('/sample', (_req, res) => {
+  res.redirect(301, '/free');
+});
+
 app.get('/privacy', (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'privacy.html'));
 });
