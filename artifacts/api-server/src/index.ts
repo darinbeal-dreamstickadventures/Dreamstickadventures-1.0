@@ -25,8 +25,17 @@ process.on('unhandledRejection', (reason) => {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Use bundled static ffmpeg binary
-process.env.PATH = path.resolve(__dirname, '../bin') + ':' + (process.env.PATH ?? '');
+// Locate ffmpeg/ffprobe binaries installed by npm packages and prepend to PATH
+// so every spawn('ffmpeg', ...) / spawn('ffprobe', ...) call in renderer.ts resolves correctly.
+import { createRequire } from 'module';
+const _require = createRequire(import.meta.url);
+const _ffmpegPath: string  = _require('ffmpeg-static');
+const _ffprobeStatic: { path: string } = _require('ffprobe-static');
+const _binDirs = [...new Set([
+  path.dirname(_ffmpegPath),
+  path.dirname(_ffprobeStatic.path),
+])].join(':');
+process.env.PATH = _binDirs + ':' + (process.env.PATH ?? '');
 
 const { Pool } = pg;
 
