@@ -784,43 +784,71 @@ async function concatAudioSegments(segmentPaths: string[], outPath: string): Pro
  * Build a single background-music track spanning the whole video (scenes +
  * title-card gaps), stitched together from each scene's own background clip
  * audio so the music timing tracks the visuals scene-by-scene.
+ *
+ * Fix B: all per-scene extractions and silence-gaps run concurrently via Promise.all.
+ * Fix C: identical (sourcePath, duration) pairs are extracted once to a shared
+ *         "dedup-N.wav"; any repeat occurrences copy from it instead of re-running ffmpeg.
  */
 async function buildBackgroundMusicTrack(
   bgs: BgSource[], sceneDurationsSec: number[], titleCardGapSec: number, outPath: string,
 ): Promise<string | null> {
   const workDir = path.join(AUDIO_TMP_DIR, `bgmusic-${Date.now()}`);
-  const segments: string[] = [];
-  let anyRealAudio = false;
+  await fs.mkdir(workDir, { recursive: true });
 
   try {
+    // Fix C: deduplicate — same (sourcePath, duration) extracts once to a shared
+    // "dedup-N.wav"; any repeat references copy from that file instead of re-running ffmpeg.
+    const extractCache = new Map<string, Promise<string | null>>();
+    let dedupCount = 0;
+
+    const getOrDedup = (sourcePath: string, duration: number): Promise<string | null> => {
+      const key = `${sourcePath}::${duration.toFixed(3)}`;
+      if (!extractCache.has(key)) {
+        const dedupPath = path.join(workDir, `dedup-${dedupCount++}.wav`);
+        extractCache.set(key, (async () => {
+          const ok = await extractBgAudioSegment(sourcePath, duration, dedupPath);
+          return ok ? dedupPath : null;
+        })());
+      }
+      return extractCache.get(key)!;
+    };
+
+    // Build an ordered list of (segPath, work) pairs for every scene segment
+    // and title-card gap. Fix B: all work fns run concurrently via Promise.all below.
+    type SegWork = { segPath: string; run: () => Promise<boolean> };
+    const segWorks: SegWork[] = [];
+
     for (let i = 0; i < bgs.length; i++) {
       const bg = bgs[i];
       const dur = sceneDurationsSec[i] ?? 20;
       const segPath = path.join(workDir, `seg${i}.wav`);
 
-      const ok = bg.kind === 'video'
-        ? await extractBgAudioSegment(bg.sourcePath, dur, segPath)
-        : false;
-
-      if (ok) {
-        anyRealAudio = true;
-        segments.push(segPath);
+      if (bg.kind === 'video') {
+        segWorks.push({
+          segPath,
+          run: async () => {
+            const dedupPath = await getOrDedup(bg.sourcePath, dur);
+            if (dedupPath) { await fs.copyFile(dedupPath, segPath); return true; }
+            await generateSilence(dur, segPath);
+            return false;
+          },
+        });
       } else {
-        await generateSilence(dur, segPath);
-        segments.push(segPath);
+        segWorks.push({ segPath, run: async () => { await generateSilence(dur, segPath); return false; } });
       }
 
       // Gap for the title card between this scene and the next
       if (i < bgs.length - 1) {
         const gapPath = path.join(workDir, `gap${i}.wav`);
-        await generateSilence(titleCardGapSec, gapPath);
-        segments.push(gapPath);
+        segWorks.push({ segPath: gapPath, run: async () => { await generateSilence(titleCardGapSec, gapPath); return false; } });
       }
     }
 
-    if (!anyRealAudio) return null; // nothing to mix — every clip was silent/imageless
+    // Fix B: run all segment extractions / silence generations in parallel
+    const hasRealAudio = await Promise.all(segWorks.map(sw => sw.run()));
+    if (!hasRealAudio.some(Boolean)) return null; // nothing to mix — every clip was silent
 
-    await concatAudioSegments(segments, outPath);
+    await concatAudioSegments(segWorks.map(sw => sw.segPath), outPath);
     return outPath;
   } finally {
     await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
@@ -909,6 +937,28 @@ export async function renderVideo(
     })(),
   ]);
 
+  // Per-scene frame counts — computed here (before the canvas loop) so that
+  // bgMusicPromise can start immediately using the same scene-duration data.
+  const framesPerScene: number[] = story.scenes.map((_, i) => {
+    const durSec = sceneDurationsSec?.[i] ?? 20;
+    return Math.round(durSec * FPS);
+  });
+  const titleCardGapSec = TITLE_CARD_FRAMES / FPS;
+
+  // Fix A: kick off background music extraction NOW — it only needs bgs[] and
+  // scene durations, both available at this point. It runs in parallel with the
+  // entire canvas rendering loop so audio is completely off the critical path.
+  // We only await the result after `await done` (when ffmpeg finishes encoding).
+  const musicWorkDir = path.join(AUDIO_TMP_DIR, `render-${Date.now()}`);
+  const musicTrackPath = path.join(musicWorkDir, 'music.wav');
+  const bgMusicPromise: Promise<string | null> = audioPath
+    ? buildBackgroundMusicTrack(bgs, framesPerScene.map(fr => fr / FPS), titleCardGapSec, musicTrackPath)
+        .catch((e: unknown) => {
+          console.error('[renderer] Background music prep failed:', (e as Error).message);
+          return null;
+        })
+    : Promise.resolve(null);
+
   const ff = spawn('ffmpeg', [
     '-y', '-f', 'rawvideo', '-pixel_format', 'rgba',
     '-video_size', `${W}x${H}`, '-framerate', String(FPS), '-i', 'pipe:0',
@@ -931,13 +981,6 @@ export async function renderVideo(
   const canvas      = createCanvas(W, H);
   const ctx         = canvas.getContext('2d');
   const totalScenes = story.scenes.length;
-
-  // Per-scene frame counts — driven by actual narration durations when provided,
-  // falling back to the old 20 s constant so the function works without audio.
-  const framesPerScene: number[] = story.scenes.map((_, i) => {
-    const durSec = sceneDurationsSec?.[i] ?? 20;
-    return Math.round(durSec * FPS);
-  });
 
   const writeFrame = async () => {
     // Use canvas.data() (a direct raw-pixel Buffer) instead of
@@ -1041,19 +1084,13 @@ export async function renderVideo(
   if (audioPath) {
     finalPath = outPath.replace(/\.mp4$/, '-narrated.mp4');
 
-    // Mix in background music extracted from each scene's own background
-    // clip, ducked under the narration at 25% volume. Falls back to plain
-    // narration if none of the scene backgrounds have a usable audio track.
+    // Fix A: bgMusicPromise was started before the canvas loop and has been
+    // running in parallel — just await its already-completed (or near-complete) result.
     let mixedAudioPath = audioPath;
-    const titleCardGapSec = TITLE_CARD_FRAMES / FPS;
     try {
-      const musicWorkDir = path.join(AUDIO_TMP_DIR, `render-${Date.now()}`);
-      const musicTrackPath = path.join(musicWorkDir, 'music.wav');
-      const musicPath = await buildBackgroundMusicTrack(
-        bgs, framesPerScene.map(fr => fr / FPS), titleCardGapSec, musicTrackPath,
-      );
+      const musicPath = await bgMusicPromise;
       if (musicPath) {
-        console.log('[renderer] Mixing background music (25%) under narration (100%)…');
+        console.log('[renderer] Mixing background music (15%) under narration (100%)…');
         const mixedPath = path.join(musicWorkDir, 'mixed.wav');
         await mixNarrationWithMusic(audioPath, musicPath, mixedPath);
         mixedAudioPath = mixedPath;
