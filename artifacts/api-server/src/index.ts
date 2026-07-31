@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { renderVideo } from './renderer.js';
 import { generateStoryAudio, generateSceneAudio } from './narration.js';
-import { sendVideoReadyEmail } from './email.js';
+import { sendVideoReadyEmail, sendConfirmationEmail } from './email.js';
 import { objectStorageClient } from './lib/objectStorage.js';
 
 // Prevent EPIPE / unhandled async rejection from crashing the server
@@ -736,6 +736,15 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
       theme,
     };
     jobs.set(job.id, job);
+
+    // Fire confirmation email immediately — before rendering starts — so the
+    // parent knows the video is on its way and can close the tab.
+    sendConfirmationEmail({
+      toEmail:   parent_email.toLowerCase().trim(),
+      childName: child_name.trim(),
+      theme,
+    }).catch((e: unknown) => console.error('[free-video] confirmation email failed:', (e as Error).message));
+
     runRenderJob(job, char).catch(() => {});
 
     res.json({ success: true, already_claimed: false, job_id: job.id, character_id: insertResult.rows[0].id });

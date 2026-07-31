@@ -153,6 +153,15 @@ select option { background: #160930; }
   font-size: 0.8rem;
   margin-top: 12px;
 }
+.submit-pre-msg {
+  text-align: center;
+  color: #c4b5fd;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.5;
+  margin-bottom: 14px;
+  padding: 0 4px;
+}
 
 .error-msg {
   background: rgba(239,68,68,0.12);
@@ -176,50 +185,35 @@ select option { background: #160930; }
   text-align: center;
   padding: 20px 0;
 }
-.magic-orb {
-  width: 100px;
-  height: 100px;
-  margin: 0 auto 24px;
-  border-radius: 50%;
-  background: radial-gradient(circle, #f7e96b 0%, #9b6fff 50%, #0e0520 100%);
-  animation: pulse 2s ease-in-out infinite;
-  box-shadow: 0 0 60px rgba(155,111,255,0.6);
-}
-@keyframes pulse {
-  0%,100% { transform: scale(1); opacity: 1; }
-  50%      { transform: scale(1.12); opacity: 0.85; }
-}
 .pending-title {
   font-family: 'Fredoka One', cursive;
   font-size: 1.8rem;
   color: #f7e96b;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 .pending-sub {
   color: #a898d8;
-  font-size: 1rem;
-  line-height: 1.5;
-  margin-bottom: 24px;
+  font-size: 1.05rem;
+  line-height: 1.6;
 }
-.progress-bar-wrap {
-  background: #0e0520;
-  border-radius: 100px;
-  height: 8px;
-  overflow: hidden;
-  margin-bottom: 12px;
-}
-.progress-bar {
-  background: linear-gradient(90deg, #9b6fff, #f7e96b);
-  height: 100%;
-  border-radius: 100px;
-  width: 5%;
-  transition: width 1.5s ease;
-}
-.progress-label {
-  color: #6d5d99;
-  font-size: 0.8rem;
+
+/* Gold stick figure */
+.stick-wrap {
+  animation: float 1.8s ease-in-out infinite;
   margin-bottom: 28px;
 }
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-10px); }
+}
+.stick-arm-l { animation: arm-l 0.6s ease-in-out infinite alternate; transform-origin: 40px 44px; }
+.stick-arm-r { animation: arm-r 0.6s ease-in-out infinite alternate; transform-origin: 40px 44px; }
+.stick-leg-l { animation: leg-l 0.6s ease-in-out infinite alternate; transform-origin: 40px 72px; }
+.stick-leg-r { animation: leg-r 0.6s ease-in-out infinite alternate; transform-origin: 40px 72px; }
+@keyframes arm-l { 0% { transform: rotate(-10deg); } 100% { transform: rotate(18deg); } }
+@keyframes arm-r { 0% { transform: rotate(10deg); }  100% { transform: rotate(-18deg); } }
+@keyframes leg-l { 0% { transform: rotate(-14deg); } 100% { transform: rotate(14deg); } }
+@keyframes leg-r { 0% { transform: rotate(14deg); }  100% { transform: rotate(-14deg); } }
 
 /* Done screen */
 .done-wrap { text-align: center; padding: 10px 0; }
@@ -356,6 +350,7 @@ select option { background: #160930; }
         </div>
       </div>
 
+      <p class="submit-pre-msg">Your child's personalized video takes about 15 minutes to create just for them ✨ We'll email it the moment it's ready!</p>
       <button type="submit" class="submit-btn" id="submit-btn">
         Create My Child's FREE Video ✦
       </button>
@@ -369,17 +364,21 @@ select option { background: #160930; }
   <div id="screen-pending">
     <div class="card">
       <div class="pending-wrap">
-        <div class="magic-orb"></div>
-        <div class="pending-title">Creating the magic… ✨</div>
-        <div class="pending-sub" id="pending-sub">
-          We're writing <strong id="pending-name"></strong>'s personalized bedtime adventure<br>
-          and rendering every frame just for them.
+        <div class="stick-wrap">
+          <svg width="80" height="120" viewBox="0 0 80 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="40" cy="18" r="14" stroke="#f7e96b" stroke-width="4" fill="none"/>
+            <line x1="40" y1="32" x2="40" y2="72" stroke="#f7e96b" stroke-width="4" stroke-linecap="round"/>
+            <line class="stick-arm-l" x1="40" y1="44" x2="16" y2="62" stroke="#f7e96b" stroke-width="4" stroke-linecap="round"/>
+            <line class="stick-arm-r" x1="40" y1="44" x2="64" y2="58" stroke="#f7e96b" stroke-width="4" stroke-linecap="round"/>
+            <line class="stick-leg-l" x1="40" y1="72" x2="20" y2="104" stroke="#f7e96b" stroke-width="4" stroke-linecap="round"/>
+            <line class="stick-leg-r" x1="40" y1="72" x2="58" y2="102" stroke="#f7e96b" stroke-width="4" stroke-linecap="round"/>
+          </svg>
         </div>
-        <div class="progress-bar-wrap">
-          <div class="progress-bar" id="progress-bar"></div>
+        <div class="pending-title" id="pending-name-title">Adventure is being created!</div>
+        <div class="pending-sub">
+          Check your inbox in about 15 minutes ✉️<br>
+          <span style="color:#6d5d99;font-size:0.85rem;margin-top:10px;display:inline-block;">You can close this tab — we'll email you when it's ready.</span>
         </div>
-        <div class="progress-label" id="progress-label">Starting up…</div>
-        <p style="color:#6d5d99;font-size:0.82rem;">This usually takes 3–5 minutes. Don't close this tab!</p>
       </div>
     </div>
   </div>
@@ -496,10 +495,9 @@ async function submitFree(e) {
       return;
     }
 
-    // Show pending screen and start polling
-    document.getElementById('pending-name').textContent = childName;
+    // Show waiting screen — delivery is via email, no polling needed
+    document.getElementById('pending-name-title').textContent = `${childName}'s adventure is being created!`;
     show('screen-pending');
-    pollJob(data.job_id, childName, theme);
 
   } catch {
     setError('Network error — please check your connection and try again.');
@@ -508,65 +506,6 @@ async function submitFree(e) {
   }
 }
 
-const STAGE_LABELS = {
-  pending:    'Preparing the adventure…',
-  generating: 'Writing the story with AI…',
-  rendering:  'Animating every frame…',
-  done:       'All done!',
-  error:      'Something went wrong.',
-};
-const STAGE_PROGRESS = { pending: 8, generating: 28, rendering: 60, done: 100, error: 100 };
-
-function pollJob(jobId, childName, theme) {
-  const bar   = document.getElementById('progress-bar');
-  const label = document.getElementById('progress-label');
-  let attempts = 0;
-  const maxAttempts = 240; // 20 min max (5s interval)
-
-  const interval = setInterval(async () => {
-    attempts++;
-    if (attempts > maxAttempts) {
-      clearInterval(interval);
-      label.textContent = 'Taking longer than expected — please refresh the page.';
-      return;
-    }
-
-    try {
-      const res  = await fetch(`/api/render-status/${jobId}`);
-      const data = await res.json();
-      const status = data.status ?? 'pending';
-
-      const pct = STAGE_PROGRESS[status] ?? 10;
-      // Animate progress bar forward gradually even within a stage
-      const currentWidth = parseFloat(bar.style.width) || 5;
-      bar.style.width = Math.max(currentWidth + 0.4, pct) + '%';
-      label.textContent = STAGE_LABELS[status] ?? 'Working…';
-
-      if (status === 'done') {
-        clearInterval(interval);
-        bar.style.width = '100%';
-        setTimeout(() => showDone(data.url, childName, theme), 600);
-      } else if (status === 'error') {
-        clearInterval(interval);
-        show('screen-form');
-        setError('The video render failed: ' + (data.error ?? 'unknown error') + '. Please try again.');
-        const btn = document.getElementById('submit-btn');
-        btn.disabled = false;
-        btn.textContent = 'Create My Child\'s FREE Video ✦';
-      }
-    } catch { /* network blip — keep polling */ }
-  }, 5000);
-}
-
-function showDone(videoPath, childName, theme) {
-  document.getElementById('done-title').textContent = `${childName}'s adventure is ready! 🌟`;
-  document.getElementById('done-sub').innerHTML =
-    `${childName}'s personalized <strong>${theme}</strong> bedtime adventure is ready to watch.<br>Hit play and watch the magic happen!`;
-
-  const filename = videoPath.replace('/api/videos/', '');
-  document.getElementById('watch-link').href = `/api/watch/${filename}`;
-  show('screen-done');
-}
 </script>
 </body>
 </html>
