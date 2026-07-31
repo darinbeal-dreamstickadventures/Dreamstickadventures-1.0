@@ -1,3 +1,4 @@
 - [napi-rs/canvas frame-write memory leak](napi-canvas-getimagedata-leak.md) — per-frame video rendering must use `canvas.data()`, never `ctx.getImageData()`, or the process OOMs on long renders.
 - [Render job concurrency & OOM](render-job-extraction-concurrency.md) — cap concurrent ffmpeg frame-extraction processes; overlapping/retried render jobs can stack orphaned extractions and OOM the server.
 - [Stripe checkout ↔ character linking](stripe-checkout-character-linking.md) — no webhook secret configured, so checkout completion is reconciled via session-retrieval + metadata email, not a webhook handler.
+- [Replit 8 GiB image size — root causes and fix](replit-image-size-fix.md) — `.git/objects` is in the Repl layer; must filter-branch + gc to purge binary blobs; use pkgs.ffmpeg (Nix layer) not npm packages.
