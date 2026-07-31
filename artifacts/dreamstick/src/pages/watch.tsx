@@ -11,7 +11,7 @@ export default function Watch() {
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState("");
 
-  const src = filename ? `/videos/${filename}` : "";
+  const src = filename ? `/api/videos/${filename}` : "";
 
   useEffect(() => {
     if (!filename) setError("No video specified. Add ?v=filename to the URL.");
