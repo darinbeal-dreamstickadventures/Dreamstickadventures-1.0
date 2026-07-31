@@ -98,7 +98,7 @@ export interface ConfirmationEmailOptions {
   theme:     string;
 }
 
-const SAMPLE_VIDEO_URL = 'https://app.dreamstickadventures.com/sample';
+const SAMPLE_VIDEO_URL = 'https://app.dreamstickadventures.com/api/videos/liam-1783564468855-narrated.mp4';
 
 function buildConfirmationHtml(opts: ConfirmationEmailOptions): string {
   const emoji    = THEME_EMOJI[opts.theme.toLowerCase()] ?? '✨';
@@ -142,7 +142,7 @@ function buildConfirmationHtml(opts: ConfirmationEmailOptions): string {
                 <td style="background:linear-gradient(135deg,#7c3aed,#a855f7);border-radius:10px;">
                   <a href="${SAMPLE_VIDEO_URL}" target="_blank"
                      style="display:inline-block;padding:16px 36px;color:#ffffff;font-size:16px;font-weight:700;text-decoration:none;letter-spacing:0.5px;">
-                    ▶&nbsp; Watch a Sample Adventure
+                    Watch a sample adventure 🎬
                   </a>
                 </td>
               </tr>

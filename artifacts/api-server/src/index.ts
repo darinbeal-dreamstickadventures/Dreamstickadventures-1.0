@@ -114,7 +114,7 @@ app.get('/pricing', (_req, res) => {
 });
 
 app.get('/form', (_req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+  res.redirect(301, '/free');
 });
 
 app.get('/free', (_req, res) => {
