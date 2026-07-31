@@ -121,9 +121,9 @@ app.get('/free', (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'free.html'));
 });
 
-// /sample was a placeholder URL in old confirmation emails — redirect gracefully
+// /sample — plays the Liam demo video with a CTA to claim a free story
 app.get('/sample', (_req, res) => {
-  res.redirect(301, '/free');
+  res.sendFile(path.join(PUBLIC_DIR, 'sample.html'));
 });
 
 app.get('/privacy', (_req, res) => {
