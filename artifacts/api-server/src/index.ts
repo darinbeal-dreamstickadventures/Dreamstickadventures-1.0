@@ -684,25 +684,32 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
       return;
     }
 
+    // ── Testing bypass — skip all limits for this address ─────────────────
+    const isBypassEmail = parent_email.toLowerCase().trim() === 'darinbeal@gmail.com';
+
     // ── Rate limit: 1 request per IP per hour ─────────────────────────────
-    const lastRequest = freeVideoIpRequests.get(ip);
-    if (lastRequest !== undefined && Date.now() - lastRequest < FREE_VIDEO_IP_WINDOW_MS) {
-      console.warn(`[free-video] Rate limit violation — ip=${ip} at ${new Date().toISOString()}`);
-      res.status(429).json({
-        success: false,
-        error: 'You have already requested a free video recently. Please check your inbox or try again later.',
-      });
-      return;
+    if (!isBypassEmail) {
+      const lastRequest = freeVideoIpRequests.get(ip);
+      if (lastRequest !== undefined && Date.now() - lastRequest < FREE_VIDEO_IP_WINDOW_MS) {
+        console.warn(`[free-video] Rate limit violation — ip=${ip} at ${new Date().toISOString()}`);
+        res.status(429).json({
+          success: false,
+          error: 'You have already requested a free video recently. Please check your inbox or try again later.',
+        });
+        return;
+      }
     }
 
     // Check if this email has already claimed a free video (max 1 per email, ever)
-    const existing = await pool.query(
-      `SELECT id FROM characters WHERE parent_email = $1 AND subscription_status = 'free-sample' LIMIT 1`,
-      [parent_email.toLowerCase().trim()],
-    );
-    if (existing.rows.length > 0) {
-      res.json({ success: true, already_claimed: true });
-      return;
+    if (!isBypassEmail) {
+      const existing = await pool.query(
+        `SELECT id FROM characters WHERE parent_email = $1 AND subscription_status = 'free-sample' LIMIT 1`,
+        [parent_email.toLowerCase().trim()],
+      );
+      if (existing.rows.length > 0) {
+        res.json({ success: true, already_claimed: true });
+        return;
+      }
     }
 
     // Only mark the IP as "used" once we know the request will actually
