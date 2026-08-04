@@ -112,6 +112,12 @@ app.use(express.json());
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
+// ── Static asset hosting (backgrounds + characters for Shotstack / renderer) ──
+// On Railway the monorepo root is deployed, so dreamstick/public/ is present.
+const DREAMSTICK_PUBLIC = path.join(__dirname, '..', '..', 'dreamstick', 'public');
+app.use('/backgrounds', express.static(path.join(DREAMSTICK_PUBLIC, 'backgrounds')));
+app.use('/characters',  express.static(path.join(DREAMSTICK_PUBLIC, 'characters')));
+
 app.get('/pricing', (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'pricing.html'));
 });
