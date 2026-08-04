@@ -192,13 +192,22 @@ async function extractVideoFramesLimited(
   }
 }
 
+// ── Chroma-key tuning ─────────────────────────────────────────────────────────
+// Adjust these two values to fix black-background removal on character clips.
+//   COLORKEY_SIMILARITY — how close to black a pixel must be before it's cut.
+//     Lower (e.g. 0.15) = less aggressive, preserves dark clothing/hair/shadows.
+//     Higher (e.g. 0.40) = more aggressive, removes faint black fringe at edges.
+//   COLORKEY_BLEND — softness of the keyed edge.
+//     Lower (e.g. 0.05) = hard/sharp cut.  Higher (e.g. 0.20) = feathered edge.
+const COLORKEY_SIMILARITY = 0.25;   // ← tune this first (was 0.30)
+const COLORKEY_BLEND       = 0.15;  // ← tune this second (was 0.10)
+
 /**
  * Extract frames from a character pose clip, keying out the black backdrop
- * via ffmpeg's `colorkey` filter (color=black similarity=0.3 blend=0.1) so
- * the frames come out as true RGBA PNGs with a transparent background —
- * composited onto the scene with normal alpha blending instead of relying
- * on a 'screen' blend-mode approximation. colorkey runs *before* the lanczos
- * scale so the key isn't fighting scaling-interpolation artifacts at edges.
+ * via ffmpeg's `colorkey` filter so the frames come out as true RGBA PNGs
+ * with a transparent background — composited onto the scene with normal alpha
+ * blending. colorkey runs *before* the lanczos scale so the key isn't
+ * fighting scaling-interpolation artifacts at edges.
  */
 async function extractPoseFramesKeyed(
   videoPath: string, outDir: string, w: number, h: number,
@@ -207,7 +216,7 @@ async function extractPoseFramesKeyed(
   await new Promise<void>((resolve, reject) => {
     const proc = spawn('ffmpeg', [
       '-i', videoPath,
-      '-vf', `colorkey=black:0.3:0.1,scale=${w}:${h}:flags=lanczos,fps=${FPS},format=rgba`,
+      '-vf', `colorkey=black:${COLORKEY_SIMILARITY}:${COLORKEY_BLEND},scale=${w}:${h}:flags=lanczos,fps=${FPS},format=rgba`,
       '-y',
       path.join(outDir, 'frame%05d.png'),
     ]);
