@@ -9,6 +9,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import cron from 'node-cron';
 import path from 'path';
 import fs from 'fs/promises';
+import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { renderVideo } from './renderer.js';
@@ -115,6 +116,9 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 // ── Static asset hosting (backgrounds + characters for Shotstack / renderer) ──
 // On Railway the monorepo root is deployed, so dreamstick/public/ is present.
 const DREAMSTICK_PUBLIC = path.join(__dirname, '..', '..', 'dreamstick', 'public');
+console.log('[startup] DREAMSTICK_PUBLIC =', DREAMSTICK_PUBLIC);
+console.log('[startup] backgrounds dir exists:', existsSync(path.join(DREAMSTICK_PUBLIC, 'backgrounds')));
+console.log('[startup] characters dir exists:', existsSync(path.join(DREAMSTICK_PUBLIC, 'characters')));
 app.use('/backgrounds', express.static(path.join(DREAMSTICK_PUBLIC, 'backgrounds')));
 app.use('/characters',  express.static(path.join(DREAMSTICK_PUBLIC, 'characters')));
 
