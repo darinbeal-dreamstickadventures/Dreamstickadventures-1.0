@@ -464,7 +464,7 @@ async function streamVideoFromGCS(filename: string, res: import('express').Respo
 
 function buildWatchUrl(filename: string): string {
   const customDomain = process.env.WATCH_DOMAIN?.trim();
-  if (customDomain) return `https://${customDomain}/api/watch/${filename}`;
+  if (customDomain) return `${customDomain}/api/watch/${filename}`;
   const replitDomain = (process.env.REPLIT_DOMAINS ?? '').split(',')[0].trim();
   return `https://${replitDomain}/api/watch/${filename}`;
 }
