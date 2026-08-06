@@ -86,8 +86,8 @@ const BOX_W = W - 36;
 // height grows upward to fit the full narration so long lines never spill
 // out above the top edge. MIN/MAX bound how much it can shrink/grow.
 const BOX_BOTTOM = 942;
-const BOX_H_MIN  = 170;
-const BOX_H_MAX  = 320;
+const BOX_H_MIN  = 240;   // taller minimum for 36px text
+const BOX_H_MAX  = 520;   // taller maximum for long narrations at 36px
 
 const NAME_Y    = 52;
 const GOLD      = '#f7e96b';
@@ -572,9 +572,12 @@ function drawFrame(
   // text) so it stays a stable size for the whole scene instead of growing
   // frame-by-frame as words appear. This guarantees every line — even for
   // long narrations — fits inside the box instead of spilling above the top.
+  // 'Liberation Sans' is listed first so @napi-rs/canvas finds it on Linux
+  // servers where fontconfig maps Liberation Sans to Arial but the canvas
+  // library does NOT auto-alias family names.
   ctx.save();
-  ctx.font       = '18px Arial, sans-serif';
-  const lineH    = 24;
+  ctx.font       = '36px Liberation Sans, Arial, sans-serif';
+  const lineH    = 48;   // ~1.33× font size
   const fullLines = wrapText(ctx, scene.narration, BOX_W - 28);
   const boxH = Math.min(BOX_H_MAX, Math.max(BOX_H_MIN, fullLines.length * lineH + 46));
   const boxY = BOX_BOTTOM - boxH;
