@@ -85,9 +85,9 @@ const BOX_W = W - 36;
 // The box's bottom edge stays anchored near the bottom of the frame; its
 // height grows upward to fit the full narration so long lines never spill
 // out above the top edge. MIN/MAX bound how much it can shrink/grow.
-const BOX_BOTTOM = 942;
-const BOX_H_MIN  = 240;   // taller minimum for 36px text
-const BOX_H_MAX  = 520;   // taller maximum for long narrations at 36px
+const BOX_BOTTOM = 950;    // 10px gap from canvas bottom (960px tall)
+const BOX_H_MIN  = 108;   // ~2 lines at 32px + padding (≈15% of 960px)
+const BOX_H_MAX  = 160;   // hard cap — never more than ~16% of screen
 
 const NAME_Y    = 52;
 const GOLD      = '#f7e96b';
@@ -567,45 +567,43 @@ function drawFrame(
   ctx.fillText(char.child_name, W / 2, NAME_Y);
   ctx.restore();
 
-  // ── Narration box with word-by-word reveal ──
-  // Size the box to the *full* narration (not just the partially-revealed
-  // text) so it stays a stable size for the whole scene instead of growing
-  // frame-by-frame as words appear. This guarantees every line — even for
-  // long narrations — fits inside the box instead of spilling above the top.
-  // 'Liberation Sans' is listed first so @napi-rs/canvas finds it on Linux
-  // servers where fontconfig maps Liberation Sans to Arial but the canvas
-  // library does NOT auto-alias family names.
+  // ── Narration subtitle box — pinned to bottom, ~15% of screen height ────
+  // Full narration is shown immediately (no word-by-word animation).
+  // 'Liberation Sans' is listed first — @napi-rs/canvas does NOT auto-alias
+  // font family names, so specifying it explicitly is required on Linux servers
+  // where fontconfig maps it to Arial but the canvas library doesn't follow that.
   ctx.save();
-  ctx.font       = '36px Liberation Sans, Arial, sans-serif';
-  const lineH    = 48;   // ~1.33× font size
-  const fullLines = wrapText(ctx, scene.narration, BOX_W - 28);
-  const boxH = Math.min(BOX_H_MAX, Math.max(BOX_H_MIN, fullLines.length * lineH + 46));
-  const boxY = BOX_BOTTOM - boxH;
+  const SUBTITLE_FONT = '32px Liberation Sans, Arial, sans-serif';
+  const lineH         = 42;   // ~1.31× font size
+  ctx.font            = SUBTITLE_FONT;
 
-  ctx.fillStyle = 'rgba(0,0,12,0.72)';
+  // Wrap the full narration to know how tall the box needs to be
+  const allLines = wrapText(ctx, scene.narration, BOX_W - 24);
+  const boxH     = Math.min(BOX_H_MAX, Math.max(BOX_H_MIN, allLines.length * lineH + 28));
+  const boxY     = BOX_BOTTOM - boxH;
+
+  // Dark semi-transparent background
+  ctx.fillStyle = 'rgba(0,0,0,0.75)';
   ctx.beginPath();
-  ctx.roundRect(BOX_X, boxY, BOX_W, boxH, 14);
+  ctx.roundRect(BOX_X, boxY, BOX_W, boxH, 10);
   ctx.fill();
-  ctx.strokeStyle = `${GOLD_RGBA},0.28)`;
-  ctx.lineWidth   = 1;
-  ctx.stroke();
 
-  ctx.fillStyle    = 'rgba(255,255,255,0.96)';
-  ctx.textAlign    = 'center';
-  ctx.textBaseline = 'top';
-  ctx.shadowBlur   = 4;
-  ctx.shadowColor  = 'rgba(0,0,0,0.9)';
-  ctx.shadowOffsetY = 1;
+  // White text, centered, with drop shadow for legibility
+  ctx.font          = SUBTITLE_FONT;   // re-apply after fill ops
+  ctx.fillStyle     = '#ffffff';
+  ctx.textAlign     = 'center';
+  ctx.textBaseline  = 'top';
+  ctx.shadowColor   = 'rgba(0,0,0,0.95)';
+  ctx.shadowBlur    = 6;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 2;
 
-  const visibleText = getVisibleNarration(scene.narration, f);
-  const lines   = wrapText(ctx, visibleText, BOX_W - 28);
-  const totalTH = lines.length * lineH;
-  const textY   = boxY + (boxH - 20 - totalTH) / 2;
-  // Debug: log on frame 0 of each scene so we can verify font + text content
+  const PAD_TOP = 14;
+  // Debug on frame 0: confirms font, fill colour, and line content
   if (f === 0) {
-    console.log(`[renderer] subtitle draw f=0 scene=${scene.scene_number} font="${ctx.font}" fillStyle="${ctx.fillStyle}" lines=${JSON.stringify(lines)} textY=${textY}`);
+    console.log(`[subtitle] scene=${scene.scene_number} font="${ctx.font}" fillStyle="${ctx.fillStyle}" boxY=${boxY} boxH=${boxH} lines=${JSON.stringify(allLines)}`);
   }
-  lines.forEach((line, i) => ctx.fillText(line, W / 2, textY + i * lineH));
+  allLines.forEach((line, i) => ctx.fillText(line, W / 2, boxY + PAD_TOP + i * lineH));
   ctx.restore();
 
   // ── Watermark + scene number ──
