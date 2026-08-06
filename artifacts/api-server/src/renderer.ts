@@ -3,6 +3,7 @@ import type { Canvas, Image, SKRSContext2D } from '@napi-rs/canvas';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
+import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 
 const __rendererFilename = fileURLToPath(import.meta.url);
