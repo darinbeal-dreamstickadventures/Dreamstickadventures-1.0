@@ -15,14 +15,21 @@ const __rendererDirname  = path.dirname(__rendererFilename);
  * from the compiled dist/index.mjs at runtime.
  */
 const EMOJI_FONT_FAMILY = 'OpenMoji';
+const EMOJI_FONT_PATH   = path.join(__dirname, 'fonts', 'OpenMoji-black-glyf.ttf');
 try {
-  GlobalFonts.registerFromPath(
-    path.join(__dirname, 'fonts', 'OpenMoji-black-glyf.ttf'),
-    EMOJI_FONT_FAMILY,
-  );
+  const fontExists = existsSync(EMOJI_FONT_PATH);
+  console.log(`[renderer] emoji font path: ${EMOJI_FONT_PATH} — exists: ${fontExists}`);
+  if (fontExists) {
+    GlobalFonts.registerFromPath(EMOJI_FONT_PATH, EMOJI_FONT_FAMILY);
+    console.log('[renderer] emoji font registered OK');
+  } else {
+    console.error('[renderer] emoji font file NOT FOUND — sidekick emoji will be tofu');
+  }
 } catch (e) {
-  console.error('[renderer] Failed to register emoji font, sidekick emoji may not render:', e);
+  console.error('[renderer] Failed to register emoji font:', e);
 }
+// Log all fonts @napi-rs/canvas can see (helps debug Arial / subtitle issues)
+console.log('[renderer] registered font families:', GlobalFonts.families.map((f: { family: string }) => f.family).join(', ') || '(none)');
 
 const W   = 540;
 const H   = 960;
@@ -590,6 +597,10 @@ function drawFrame(
   const lines   = wrapText(ctx, visibleText, BOX_W - 28);
   const totalTH = lines.length * lineH;
   const textY   = boxY + (boxH - 20 - totalTH) / 2;
+  // Debug: log on frame 0 of each scene so we can verify font + text content
+  if (f === 0) {
+    console.log(`[renderer] subtitle draw f=0 scene=${scene.scene_number} font="${ctx.font}" fillStyle="${ctx.fillStyle}" lines=${JSON.stringify(lines)} textY=${textY}`);
+  }
   lines.forEach((line, i) => ctx.fillText(line, W / 2, textY + i * lineH));
   ctx.restore();
 
@@ -864,9 +875,11 @@ async function buildBackgroundMusicTrack(
 
 /**
  * Mix background music under narration: narration stays at 100% volume,
- * background music is attenuated to 25% so it never competes with the
- * spoken story. Output duration matches the narration track (`shortest`)
+ * background music is attenuated to 10% so it never competes with the
+ * spoken story. Output duration matches the narration track (`duration=first`)
  * so a slightly-longer music bed never appends silence to the end.
+ * normalize=0 prevents amix from boosting the mix to compensate for the
+ * quiet music track, which would otherwise lift the overall level.
  */
 async function mixNarrationWithMusic(
   narrationPath: string, musicPath: string, outPath: string,
@@ -878,7 +891,7 @@ async function mixNarrationWithMusic(
       '-i', narrationPath,
       '-i', musicPath,
       '-filter_complex',
-      '[0:a]volume=1.0[narr];[1:a]volume=0.15[music];[narr][music]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]',
+      '[0:a]volume=1.0[narr];[1:a]volume=0.10[music];[narr][music]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]',
       '-map', '[aout]',
       '-ac', '2', '-ar', '44100',
       outPath,
