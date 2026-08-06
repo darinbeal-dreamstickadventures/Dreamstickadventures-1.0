@@ -122,13 +122,16 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
 }
 
 buildAll()
-  .then(() =>
-    cp(
-      path.resolve(artifactDir, "public"),
-      path.resolve(artifactDir, "dist/public"),
-      { recursive: true }
-    )
-  )
+  .then(() => cp(
+    path.resolve(artifactDir, "public"),
+    path.resolve(artifactDir, "dist/public"),
+    { recursive: true }
+  ))
+  .then(() => cp(
+    path.resolve(artifactDir, "fonts"),
+    path.resolve(artifactDir, "dist/fonts"),
+    { recursive: true }
+  ))
   .catch((err) => {
     console.error(err);
     process.exit(1);

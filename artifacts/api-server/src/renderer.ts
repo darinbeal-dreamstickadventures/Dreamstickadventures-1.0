@@ -9,17 +9,15 @@ const __rendererFilename = fileURLToPath(import.meta.url);
 const __rendererDirname  = path.dirname(__rendererFilename);
 
 /**
- * The base OS image has no emoji-capable fonts installed (only DejaVu), so
- * sidekick emoji were silently rendering as blank "tofu" glyphs. OpenMoji
- * Black is a monochrome outline emoji font (glyf-based, not a COLR/CBDT
- * color font), which @napi-rs/canvas can rasterize reliably — registered
- * directly from its Nix store path since fontconfig hasn't indexed
- * newly-added Nix packages without a full container rebuild.
+ * OpenMoji Black is bundled in artifacts/api-server/fonts/ so it works on any
+ * OS (Replit, Railway, DigitalOcean Ubuntu) without apt-get installs.
+ * The build script copies fonts/ into dist/fonts/ so the relative path works
+ * from the compiled dist/index.mjs at runtime.
  */
 const EMOJI_FONT_FAMILY = 'OpenMoji';
 try {
   GlobalFonts.registerFromPath(
-    '/nix/store/bryizcnj2q42wxjw7sm85z8jncckgvs1-openmoji-15.1.0/share/fonts/truetype/OpenMoji-black-glyf.ttf',
+    path.join(__dirname, 'fonts', 'OpenMoji-black-glyf.ttf'),
     EMOJI_FONT_FAMILY,
   );
 } catch (e) {
