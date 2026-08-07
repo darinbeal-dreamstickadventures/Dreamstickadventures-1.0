@@ -1,0 +1,141 @@
+Please add a 4-email drip sequence
+to the nightly scheduler for free
+video recipients.
+
+Track which emails have been sent
+by adding columns to the characters table:
+drip_email_1_sent_at
+drip_email_2_sent_at
+drip_email_3_sent_at
+drip_email_4_sent_at
+
+Only send to subscribers with
+subscription_status = 'free-sample'
+not to paying subscribers
+
+Use child_name and theme from
+the characters table for personalization
+
+Stripe checkout URL for all CTA buttons:
+https://app.dreamstickadventures.com/api/checkout/dreamer
+
+Here are the 4 email templates:
+
+EMAIL 1 - Send on Day 2:
+Subject: Did [child_name] love their adventure? 🌟
+
+A couple of days ago [child_name] 
+went on a magical adventure.
+
+We hope they loved every moment 
+of it — the golden glow, the 
+magical world, and their trusty 
+sidekick by their side.
+
+Imagine getting that same magic 
+delivered to your inbox every 
+single week.
+
+A new story. A new adventure.
+[child_name] as the hero every time.
+
+For less than a cup of coffee 
+a week, you can keep the 
+bedtime magic going.
+
+BUTTON TEXT: Keep the Adventure Going - $7/mo
+BUTTON LINK: https://app.dreamstickadventures.com/api/checkout/dreamer
+
+EMAIL 2 - Send on Day 5:
+Subject: [child_name]'s next adventure is waiting 🗺️
+
+[child_name] has already proven 
+they're a true hero.
+
+But every hero needs more adventures.
+
+This week they could explore:
+🚀 The mysteries of outer space
+🌊 The depths of the underwater kingdom
+🦕 A prehistoric dinosaur world
+👸 An enchanted princess realm
+🦸 A superhero city
+🌴 A magical jungle
+🏴‍☠️ A pirate's treasure hunt
+✨ A magical wonderland
+
+A brand new personalized story 
+every week starring [child_name].
+
+Their name. Their adventure.
+Their golden hero moment.
+
+BUTTON TEXT: Start Weekly Adventures - $7/mo
+BUTTON LINK: https://app.dreamstickadventures.com/api/checkout/dreamer
+
+EMAIL 3 - Send on Day 10:
+Subject: What parents are saying about DreamStick 💛
+
+We wanted to share what other 
+parents are experiencing with 
+DreamStick Adventures:
+
+"My daughter asks for her 
+DreamStick video every single 
+night now. Bedtime has gone from 
+a battle to the highlight of her day!"
+— Parent of Emma, age 6
+
+"I never thought a bedtime video 
+could make ME emotional. Seeing 
+my son's name and watching him 
+be the hero of his own story 
+was truly magical."
+— Parent of Jake, age 8
+
+"Best $7 I spend every month. 
+My twins both have their own 
+characters and they love 
+comparing their adventures!"
+— Parent of twins, age 5
+
+[child_name] deserves their own 
+weekly adventure too.
+
+BUTTON TEXT: Join DreamStick Adventures - $7/mo
+BUTTON LINK: https://app.dreamstickadventures.com/api/checkout/dreamer
+
+EMAIL 4 - Send on Day 14:
+Subject: One last thing about [child_name]... 💛
+
+We just wanted to say something 
+from the heart.
+
+Every child deserves to feel like 
+the hero of their own story.
+
+Not just once.
+Every single week.
+
+[child_name] had their first 
+adventure. They proved they were 
+brave, curious, and magical.
+
+That story doesn't have to end.
+
+For just $7 a month — less than 
+a single trip to the movies — 
+[child_name] gets a brand new 
+personalized adventure delivered 
+straight to your inbox every week.
+
+No screens to manage.
+No apps to download.
+Just pure bedtime magic.
+
+BUTTON TEXT: Keep [child_name]'s Story Going - $7/mo
+BUTTON LINK: https://app.dreamstickadventures.com/api/checkout/dreamer
+
+P.S. Plans start at just $7/mo
+and you can cancel anytime.
+No risk. Just magic.
