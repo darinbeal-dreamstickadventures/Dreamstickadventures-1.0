@@ -465,6 +465,7 @@ function drawFrame(
   particles: Particle[],
   f: number,
   fadeAlpha: number,
+  sceneFrames: number,
 ): void {
   const { charH, charW, charTop, charCY } = charDims(char.build);
   const charX = CHAR_CX - charW / 2;
@@ -567,20 +568,32 @@ function drawFrame(
   ctx.fillText(char.child_name, W / 2, NAME_Y);
   ctx.restore();
 
-  // ── Narration subtitle box — pinned to bottom, ~15% of screen height ────
-  // Full narration is shown immediately (no word-by-word animation).
-  // 'Liberation Sans' is listed first — @napi-rs/canvas does NOT auto-alias
-  // font family names, so specifying it explicitly is required on Linux servers
-  // where fontconfig maps it to Arial but the canvas library doesn't follow that.
+  // ── Narration subtitle box — cycles through chunks as scene progresses ──
+  // The full narration is split into LINES_PER_CHUNK-line chunks. The chunk
+  // shown advances evenly through the scene so later text appears as the
+  // narration audio progresses — no word timestamps needed.
+  // 'Liberation Sans' is first: @napi-rs/canvas does NOT auto-alias font
+  // family names, so it must be named explicitly on Linux servers.
   ctx.save();
-  const SUBTITLE_FONT = '32px Liberation Sans, Arial, sans-serif';
-  const lineH         = 42;   // ~1.31× font size
-  ctx.font            = SUBTITLE_FONT;
+  const SUBTITLE_FONT  = '32px Liberation Sans, Arial, sans-serif';
+  const lineH          = 42;
+  const LINES_PER_CHUNK = 3;   // lines visible at once (fits BOX_H_MAX)
+  const PAD_V          = 14;   // vertical padding inside box
 
-  // Wrap the full narration to know how tall the box needs to be
-  const allLines = wrapText(ctx, scene.narration, BOX_W - 24);
-  const boxH     = Math.min(BOX_H_MAX, Math.max(BOX_H_MIN, allLines.length * lineH + 28));
-  const boxY     = BOX_BOTTOM - boxH;
+  ctx.font = SUBTITLE_FONT;
+  const allLines   = wrapText(ctx, scene.narration, BOX_W - 24);
+  const numChunks  = Math.ceil(allLines.length / LINES_PER_CHUNK);
+  const chunkIndex = Math.min(
+    Math.floor((f / sceneFrames) * numChunks),
+    numChunks - 1,
+  );
+  const visLines   = allLines.slice(
+    chunkIndex * LINES_PER_CHUNK,
+    chunkIndex * LINES_PER_CHUNK + LINES_PER_CHUNK,
+  );
+
+  const boxH = Math.min(BOX_H_MAX, Math.max(BOX_H_MIN, visLines.length * lineH + PAD_V * 2));
+  const boxY = BOX_BOTTOM - boxH;
 
   // Dark semi-transparent background
   ctx.fillStyle = 'rgba(0,0,0,0.75)';
@@ -588,22 +601,20 @@ function drawFrame(
   ctx.roundRect(BOX_X, boxY, BOX_W, boxH, 10);
   ctx.fill();
 
-  // White text, centered, with drop shadow for legibility
-  ctx.font          = SUBTITLE_FONT;   // re-apply after fill ops
-  ctx.fillStyle     = '#ffffff';
-  ctx.textAlign     = 'center';
-  ctx.textBaseline  = 'top';
-  ctx.shadowColor   = 'rgba(0,0,0,0.95)';
-  ctx.shadowBlur    = 6;
+  // White text with drop shadow for legibility on any background
+  ctx.font         = SUBTITLE_FONT;
+  ctx.fillStyle    = '#ffffff';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'top';
+  ctx.shadowColor  = 'rgba(0,0,0,0.95)';
+  ctx.shadowBlur   = 6;
   ctx.shadowOffsetX = 0;
   ctx.shadowOffsetY = 2;
 
-  const PAD_TOP = 14;
-  // Debug on frame 0: confirms font, fill colour, and line content
   if (f === 0) {
-    console.log(`[subtitle] scene=${scene.scene_number} font="${ctx.font}" fillStyle="${ctx.fillStyle}" boxY=${boxY} boxH=${boxH} lines=${JSON.stringify(allLines)}`);
+    console.log(`[subtitle] scene=${scene.scene_number} chunks=${numChunks} allLines=${JSON.stringify(allLines)}`);
   }
-  allLines.forEach((line, i) => ctx.fillText(line, W / 2, boxY + PAD_TOP + i * lineH));
+  visLines.forEach((line, i) => ctx.fillText(line, W / 2, boxY + PAD_V + i * lineH));
   ctx.restore();
 
   // ── Watermark + scene number ──
@@ -1063,7 +1074,7 @@ export async function renderVideo(
         const poseImage = await getPoseImage(poseSrc, poseLocalFrame);
 
         drawFrame(ctx, bgImage, char, scene, poseImage, particles, f,
-                  Math.min(1, Math.max(0, fadeAlpha)));
+                  Math.min(1, Math.max(0, fadeAlpha)), sceneFrames);
         await writeFrame();
 
         // @napi-rs/canvas allocates native pixel buffers on every
