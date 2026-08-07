@@ -14,7 +14,7 @@ import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { renderVideo } from './renderer.js';
 import { generateStoryAudio, generateSceneAudio } from './narration.js';
-import { sendVideoReadyEmail, sendConfirmationEmail } from './email.js';
+import { sendVideoReadyEmail, sendConfirmationEmail, sendDripEmail } from './email.js';
 import { objectStorageClient } from './lib/objectStorage.js';
 
 // Prevent EPIPE / unhandled async rejection from crashing the server
@@ -45,6 +45,16 @@ if (!process.env.ANTHROPIC_API_KEY) {
 }
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+// Ensure drip-sequence columns exist (idempotent — safe to run on every startup).
+pool.query(`
+  ALTER TABLE characters
+    ADD COLUMN IF NOT EXISTS drip_email_1_sent_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS drip_email_2_sent_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS drip_email_3_sent_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS drip_email_4_sent_at TIMESTAMPTZ
+`).then(() => console.log('[db] drip columns ensured'))
+  .catch((e: any) => console.error('[db] drip column migration failed:', e.message));
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -276,6 +286,11 @@ interface Character {
   accessories?: string;
   sidekick?: string;
   theme?: string;
+  last_video_sent_at?: string | null;
+  drip_email_1_sent_at?: string | null;
+  drip_email_2_sent_at?: string | null;
+  drip_email_3_sent_at?: string | null;
+  drip_email_4_sent_at?: string | null;
 }
 
 function buildStoryPrompt(char: Character): string {
@@ -606,9 +621,73 @@ async function runNightlyScheduler(): Promise<void> {
   }
 }
 
+// ── Drip email scheduler (free-sample recipients) ────────────────────────────
+//
+// Runs alongside the nightly scheduler. Checks all free-sample characters and
+// sends the appropriate drip email based on days since last_video_sent_at.
+// Each email is sent exactly once — the sent-at timestamp acts as the guard.
+async function runDripScheduler(): Promise<void> {
+  const now = Date.now();
+  console.log(`[drip] Drip scheduler starting at ${new Date(now).toISOString()}`);
+
+  let chars: (Character & { id: number })[] = [];
+  try {
+    const result = await pool.query(`
+      SELECT id, parent_email, child_name, theme,
+             last_video_sent_at,
+             drip_email_1_sent_at, drip_email_2_sent_at,
+             drip_email_3_sent_at, drip_email_4_sent_at
+      FROM characters
+      WHERE subscription_status = 'free-sample'
+        AND last_video_sent_at IS NOT NULL
+        AND parent_email IS NOT NULL
+      ORDER BY id ASC
+    `);
+    chars = result.rows as (Character & { id: number })[];
+  } catch (e: any) {
+    console.error('[drip] Failed to load free-sample characters:', e.message);
+    return;
+  }
+
+  const DRIP_SCHEDULE: { col: string; field: keyof Character; dayThreshold: number; num: 1 | 2 | 3 | 4 }[] = [
+    { col: 'drip_email_1_sent_at', field: 'drip_email_1_sent_at', dayThreshold: 2,  num: 1 },
+    { col: 'drip_email_2_sent_at', field: 'drip_email_2_sent_at', dayThreshold: 5,  num: 2 },
+    { col: 'drip_email_3_sent_at', field: 'drip_email_3_sent_at', dayThreshold: 10, num: 3 },
+    { col: 'drip_email_4_sent_at', field: 'drip_email_4_sent_at', dayThreshold: 14, num: 4 },
+  ];
+
+  let sent = 0;
+  let skipped = 0;
+
+  for (const char of chars) {
+    const videoSentAt = new Date(char.last_video_sent_at!).getTime();
+    const daysSinceVideo = (now - videoSentAt) / (1000 * 60 * 60 * 24);
+
+    for (const drip of DRIP_SCHEDULE) {
+      if (char[drip.field]) { skipped++; continue; }              // already sent
+      if (daysSinceVideo < drip.dayThreshold) { skipped++; continue; } // not yet due
+
+      const ok = await sendDripEmail(
+        { toEmail: char.parent_email!, childName: char.child_name, theme: char.theme ?? 'space' },
+        drip.num,
+      );
+      if (ok) {
+        await pool.query(
+          `UPDATE characters SET ${drip.col} = now() WHERE id = $1`,
+          [char.id],
+        ).catch((e: any) => console.error(`[drip] Failed to stamp ${drip.col} for char ${char.id}:`, e.message));
+        sent++;
+      }
+    }
+  }
+
+  console.log(`[drip] Complete — checked=${chars.length} sent=${sent} skipped=${skipped}`);
+}
+
 // Runs at 7:00 PM Mountain Time every night (node-cron resolves DST via the IANA zone).
 cron.schedule('0 19 * * *', () => {
   runNightlyScheduler().catch((e: any) => console.error('[scheduler] Unhandled error in nightly run:', e.message));
+  runDripScheduler().catch((e: any) => console.error('[drip] Unhandled error in drip run:', e.message));
 }, { timezone: 'America/Denver' });
 
 // Manual trigger for testing the nightly pipeline without waiting for 7pm.
@@ -620,7 +699,8 @@ app.post('/api/admin/run-nightly-scheduler', async (req, res): Promise<void> => 
     return;
   }
   runNightlyScheduler().catch((e: any) => console.error('[scheduler] Unhandled error in manual run:', e.message));
-  res.json({ success: true, message: 'Nightly scheduler run started in the background — check server logs for progress.' });
+  runDripScheduler().catch((e: any) => console.error('[drip] Unhandled error in manual drip run:', e.message));
+  res.json({ success: true, message: 'Nightly scheduler + drip sequence started in the background — check server logs for progress.' });
 });
 
 // Start a render job for a DB character
