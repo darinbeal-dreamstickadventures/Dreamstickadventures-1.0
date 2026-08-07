@@ -98,7 +98,7 @@ export interface ConfirmationEmailOptions {
   theme:     string;
 }
 
-const SAMPLE_VIDEO_URL = 'https://app.dreamstickadventures.com/sample';
+const SAMPLE_VIDEO_URL = 'https://pub-c6814ff127874397be8590901348d4ff.r2.dev/alex-1786136600916-narrated.mp4';
 
 function buildConfirmationHtml(opts: ConfirmationEmailOptions): string {
   const emoji    = THEME_EMOJI[opts.theme.toLowerCase()] ?? '✨';
