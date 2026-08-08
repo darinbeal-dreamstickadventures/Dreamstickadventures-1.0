@@ -59,9 +59,9 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const PRICE_IDS: Record<string, string> = {
-  dreamer: process.env.STRIPE_DREAMER_PRICE_ID ?? '',
-  nightly: process.env.STRIPE_NIGHTLY_PRICE_ID ?? '',
-  family:  process.env.STRIPE_FAMILY_PRICE_ID  ?? '',
+  dreamer: process.env.STRIPE_DREAMER_PRICE_ID ?? process.env.STRIPE_PRICE_DREAMER ?? '',
+  nightly: process.env.STRIPE_NIGHTLY_PRICE_ID ?? process.env.STRIPE_PRICE_NIGHTLY ?? '',
+  family:  process.env.STRIPE_FAMILY_PRICE_ID  ?? process.env.STRIPE_PRICE_FAMILY  ?? '',
 };
 
 const app = express();
