@@ -25,7 +25,7 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-WATCH_DOMAIN = ""
+WATCH_DOMAIN = "https://app.dreamstickadventures.com"
 ADMIN_SECRET_TOKEN = "d87b0d08483345415640895b1351756ced31234f8844d3568cedabeb6e5c16fe"
 R2_BUCKET_NAME = "dreamstick-assets"
 R2_PUBLIC_URL = "https://pub-c6814ff127874397be8590901348d4ff.r2.dev"
