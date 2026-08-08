@@ -15,7 +15,7 @@ import { randomUUID } from 'crypto';
 import { renderVideo } from './renderer.js';
 import { generateStoryAudio, generateSceneAudio } from './narration.js';
 import { sendVideoReadyEmail, sendConfirmationEmail, sendDripEmail } from './email.js';
-import { objectStorageClient } from './lib/objectStorage.js';
+import { uploadToR2, r2FileExists, r2PublicVideoUrl } from './r2.js';
 
 // Prevent EPIPE / unhandled async rejection from crashing the server
 process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
@@ -445,42 +445,7 @@ setInterval(() => {
 const NARRATION_ENABLED =
   !!process.env.ELEVENLABS_API_KEY && !!process.env.ELEVENLABS_VOICE_ID;
 
-async function uploadVideoToGCS(localPath: string, filename: string): Promise<void> {
-  const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
-  if (!bucketId) throw new Error('DEFAULT_OBJECT_STORAGE_BUCKET_ID not set');
-  const bucket = objectStorageClient.bucket(bucketId);
-  await bucket.upload(localPath, {
-    destination: `videos/${filename}`,
-    contentType: 'video/mp4',
-    metadata: { cacheControl: 'public, max-age=86400' },
-  });
-  console.log(`[gcs] Uploaded ${filename} to bucket ${bucketId}`);
-}
-
-async function streamVideoFromGCS(filename: string, res: import('express').Response): Promise<boolean> {
-  const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
-  if (!bucketId) return false;
-  try {
-    const bucket = objectStorageClient.bucket(bucketId);
-    const file = bucket.file(`videos/${filename}`);
-    const [exists] = await file.exists();
-    if (!exists) return false;
-    const [meta] = await file.getMetadata();
-    res.setHeader('Content-Type', 'video/mp4');
-    if (meta.size) res.setHeader('Content-Length', String(meta.size));
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    await new Promise<void>((resolve, reject) => {
-      file.createReadStream()
-        .on('error', reject)
-        .pipe(res)
-        .on('finish', resolve)
-        .on('error', reject);
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
+// GCS removed — videos are now stored in Cloudflare R2.
 
 function buildWatchUrl(filename: string): string {
   const customDomain = process.env.WATCH_DOMAIN?.trim();
@@ -524,20 +489,30 @@ async function runRenderJob(job: RenderJob, char: Character): Promise<void> {
     job.status = 'done';
     console.log(`[job:${job.id}] Done → ${job.url}`);
 
-    // ── Upload to GCS for persistent storage ───────────────────────────────
-    uploadVideoToGCS(filePath, filename).catch((e: any) =>
-      console.error(`[gcs] Upload failed (video still served from disk): ${e.message}`)
-    );
-
-    // ── Email delivery (non-fatal) ──────────────────────────────────────────
+    // ── Upload to R2 then email (non-fatal — disk copy always available) ──
     if (job.parentEmail) {
-      const watchUrl = buildWatchUrl(filename);
-      sendVideoReadyEmail({
-        toEmail:   job.parentEmail,
-        childName: job.childName ?? char.child_name,
-        theme:     job.theme ?? char.theme ?? 'adventure',
-        watchUrl,
-      }).catch(() => {});
+      const parentEmail = job.parentEmail;
+      const childName   = job.childName ?? char.child_name;
+      const theme       = job.theme ?? char.theme ?? 'adventure';
+
+      uploadToR2(filePath, filename)
+        .then((r2Url) => {
+          console.log(`[r2] Upload complete — ${r2Url}`);
+          // Use the R2 public CDN URL directly in the email (no server hop).
+          const watchUrl = buildWatchUrl(filename);
+          return sendVideoReadyEmail({ toEmail: parentEmail, childName, theme, watchUrl });
+        })
+        .catch((uploadErr: any) => {
+          console.error(`[r2] Upload failed (video still served from disk): ${uploadErr.message}`);
+          // Fall back: email with the server watch URL anyway.
+          const watchUrl = buildWatchUrl(filename);
+          sendVideoReadyEmail({ toEmail: parentEmail, childName, theme, watchUrl }).catch(() => {});
+        });
+    } else {
+      // No email needed — upload quietly in background.
+      uploadToR2(filePath, filename).catch((e: any) =>
+        console.error(`[r2] Upload failed: ${e.message}`)
+      );
     }
   } catch (e: any) {
     job.status = 'error';
@@ -913,18 +888,10 @@ app.get('/api/watch/:filename', async (req, res): Promise<void> => {
   const filename = path.basename(req.params.filename);
   const filePath = path.join(VIDEOS_DIR, filename);
 
-  // Check file exists locally or in GCS before rendering the page
+  // Check file exists locally or in R2 before rendering the page
   let videoExists = false;
-  try { await fs.access(filePath); videoExists = true; } catch { /* check GCS */ }
-  if (!videoExists) {
-    try {
-      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID;
-      if (bucketId) {
-        const [exists] = await objectStorageClient.bucket(bucketId).file(`videos/${filename}`).exists();
-        videoExists = exists;
-      }
-    } catch { /* fall through */ }
-  }
+  try { await fs.access(filePath); videoExists = true; } catch { /* check R2 */ }
+  if (!videoExists) videoExists = await r2FileExists(filename);
 
   if (!videoExists) {
     res.status(404).send('<h1>Video not found</h1>');
@@ -970,7 +937,7 @@ a.dl:hover{background:#fde047}
   }
 });
 
-// Serve completed video files — local /tmp first, then GCS fallback
+// Serve completed video files — local /tmp first, then R2 redirect
 app.get('/api/videos/:filename', async (req, res): Promise<void> => {
   const filename = path.basename(req.params.filename);
   const filePath = path.join(VIDEOS_DIR, filename);
@@ -983,14 +950,17 @@ app.get('/api/videos/:filename', async (req, res): Promise<void> => {
     res.sendFile(filePath);
     return;
   } catch {
-    // File not on disk — fall through to GCS
+    // File not on disk — fall through to R2
   }
 
-  // Fall back to GCS (persists across restarts)
-  const served = await streamVideoFromGCS(filename, res);
-  if (!served) {
-    res.status(404).json({ error: 'Video not found' });
+  // Fall back to R2 public CDN URL (persists across server restarts)
+  const exists = await r2FileExists(filename);
+  if (exists) {
+    res.redirect(302, r2PublicVideoUrl(filename));
+    return;
   }
+
+  res.status(404).json({ error: 'Video not found' });
 });
 
 // ── Test narration (audio only, no video render) ──────────────────────────────
