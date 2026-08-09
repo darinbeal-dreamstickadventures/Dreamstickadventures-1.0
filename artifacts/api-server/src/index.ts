@@ -498,13 +498,12 @@ async function runRenderJob(job: RenderJob, char: Character): Promise<void> {
       uploadToR2(filePath, filename)
         .then((r2Url) => {
           console.log(`[r2] Upload complete — ${r2Url}`);
-          // Use the R2 public CDN URL directly in the email (no server hop).
-          const watchUrl = buildWatchUrl(filename);
-          return sendVideoReadyEmail({ toEmail: parentEmail, childName, theme, watchUrl });
+          // Use the R2 public CDN URL directly in the email.
+          return sendVideoReadyEmail({ toEmail: parentEmail, childName, theme, watchUrl: r2Url });
         })
         .catch((uploadErr: any) => {
           console.error(`[r2] Upload failed (video still served from disk): ${uploadErr.message}`);
-          // Fall back: email with the server watch URL anyway.
+          // Fall back: email with the server watch URL.
           const watchUrl = buildWatchUrl(filename);
           sendVideoReadyEmail({ toEmail: parentEmail, childName, theme, watchUrl }).catch(() => {});
         });
