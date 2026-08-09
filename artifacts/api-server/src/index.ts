@@ -315,8 +315,9 @@ Child details:
 
 IMPORTANT visual rules — follow these exactly:
 1. The character always glows with a magical golden light. Any reference to their clothing must match this golden aesthetic — say "golden outfit", "golden cloak", "golden armour" etc. Never mention any other clothing colour.
-2. When mentioning the sidekick, refer to it by name only (e.g. "the dragon", "the unicorn", "the dog"). Never describe the sidekick's colour.
-3. Never mention any specific colour for the character's clothing or the sidekick.
+2. The child's sidekick is ${char.sidekick && char.sidekick !== 'none' ? char.sidekick : 'none'}. You MUST refer to this sidekick throughout the entire story. Never change or replace the sidekick with a different animal or creature. If the sidekick is a cat, it is always a cat — never a dragon, never a unicorn, never anything else.
+3. When mentioning the sidekick, refer to it by species only (e.g. "the cat", "the dragon"). Never describe the sidekick's colour.
+4. Never mention any specific colour for the character's clothing or the sidekick.
 
 Write exactly 6 scenes. Each scene is 20 seconds of narration (2-3 sentences). The story must:
 1. Start with excitement or curiosity to draw the child in
@@ -739,12 +740,13 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
   const ip = getClientIp(req);
 
   try {
-    const { child_name, character_type, theme, parent_email, child_age } = req.body as {
+    const { child_name, character_type, theme, parent_email, child_age, sidekick } = req.body as {
       child_name: string;
       character_type?: string;
       theme: string;
       parent_email: string;
       child_age?: number;
+      sidekick?: string;
     };
 
     if (!child_name || !theme || !parent_email) {
@@ -799,7 +801,7 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
         resolvedAge,
         character_type ?? 'boy',
         'average',
-        'dragon',
+        sidekick && sidekick !== 'none' ? sidekick : 'dragon',
         theme,
       ],
     );
@@ -809,7 +811,7 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
       child_age:  resolvedAge,
       character_type: character_type ?? 'boy',
       build:    'average',
-      sidekick: 'dragon',
+      sidekick: sidekick && sidekick !== 'none' ? sidekick : 'dragon',
       theme,
     };
 
