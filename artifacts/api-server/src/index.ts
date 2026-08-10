@@ -159,6 +159,39 @@ app.get('/terms', (_req, res) => {
 
 // ── Stripe checkout ──────────────────────────────────────────────────────────
 
+// GET /api/checkout/:plan — direct link that creates a session and redirects.
+// Email is optional (?email=...) and pre-fills the Stripe form if provided.
+// Used by pricing page buttons and drip email CTAs.
+app.get('/api/checkout/:plan', async (req, res): Promise<void> => {
+  const plan    = (req.params.plan as string).toLowerCase();
+  const email   = (req.query.email as string | undefined)?.trim().toLowerCase();
+  const priceId = PRICE_IDS[plan];
+
+  if (!priceId) {
+    res.status(400).send(`Unknown plan: ${plan}`);
+    return;
+  }
+
+  const origin =
+    req.headers.origin ??
+    `https://${(process.env.REPLIT_DOMAINS ?? '').split(',')[0].trim()}`;
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      line_items: [{ price: priceId, quantity: 1 }],
+      ...(email ? { customer_email: email } : {}),
+      metadata: { plan, ...(email ? { email } : {}) },
+      success_url: `${origin}/api/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url:  `${origin}/pricing`,
+    });
+    res.redirect(303, session.url!);
+  } catch (e: any) {
+    console.error('[checkout] Stripe error:', e.message);
+    res.status(500).send('Unable to start checkout. Please try again.');
+  }
+});
+
 app.post('/api/create-checkout-session', async (req, res): Promise<void> => {
   const plan  = (req.body.plan as string)?.toLowerCase();
   const email = (req.body.email as string)?.trim().toLowerCase();

@@ -157,7 +157,7 @@ h2 {
         <li>Space, jungle & ocean themes</li>
         <li>Email story delivery</li>
       </ul>
-      <button class="btn" onclick="subscribe('dreamer', this)">Get Started – $7/mo</button>
+      <button class="btn" onclick="goCheckout('dreamer', this)">Get Started – $7/mo</button>
     </div>
 
     <div class="plan featured">
@@ -173,7 +173,7 @@ h2 {
         <li>Email + app delivery</li>
         <li>Choose story length</li>
       </ul>
-      <button class="btn" onclick="subscribe('nightly', this)">Get Started – $12/mo</button>
+      <button class="btn" onclick="goCheckout('nightly', this)">Get Started – $12/mo</button>
     </div>
 
     <div class="plan">
@@ -188,7 +188,7 @@ h2 {
         <li>Email + app delivery</li>
         <li>Multi-child story crossovers</li>
       </ul>
-      <button class="btn" onclick="subscribe('family', this)">Get Started – $19/mo</button>
+      <button class="btn" onclick="goCheckout('family', this)">Get Started – $19/mo</button>
     </div>
 
   </div>
@@ -205,36 +205,18 @@ h2 {
   if (email) document.getElementById('parentEmail').value = email;
 })();
 
-async function subscribe(plan, btn) {
+function goCheckout(plan, btn) {
   const email = document.getElementById('parentEmail').value.trim();
-  if (!email || !email.includes('@')) {
-    alert('Please enter a valid email address so we know where to send your videos.');
-    document.getElementById('parentEmail').focus();
-    return;
-  }
-
   const originalText = btn.textContent;
   btn.disabled = true;
   btn.textContent = 'Loading...';
-  try {
-    const res = await fetch('/api/create-checkout-session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plan, email })
-    });
-    const data = await res.json();
-    if (data.url) {
-      window.location.href = data.url;
-    } else {
-      alert('Something went wrong. Please try again.');
-      btn.disabled = false;
-      btn.textContent = originalText;
-    }
-  } catch (e) {
-    alert('Connection error. Please try again.');
-    btn.disabled = false;
-    btn.textContent = originalText;
-  }
+
+  // Build the direct checkout URL; include email if provided so Stripe pre-fills it.
+  const url = '/api/checkout/' + plan + (email ? '?email=' + encodeURIComponent(email) : '');
+  window.location.href = url;
+
+  // Restore button after 5 s in case the user navigates back.
+  setTimeout(() => { btn.disabled = false; btn.textContent = originalText; }, 5000);
 }
 </script>
 </body>
