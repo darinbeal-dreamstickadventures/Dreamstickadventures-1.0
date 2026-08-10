@@ -34,7 +34,18 @@ _Describe the high-level user-facing capabilities of this app once they exist._
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- **Deployment is DigitalOcean only** — never suggest "Deploy to Railway", "click Publish", or any Replit/Railway deploy action. They don't apply.
+- Always end deployment instructions with: **"Pull and restart on DigitalOcean"**
+- Deployment process (run on the server via SSH):
+  ```
+  cd /app && git pull origin main && \
+  pnpm --filter @workspace/api-server run build && \
+  cd /app/artifacts/api-server && \
+  export $(cat .env | xargs) && \
+  pm2 restart dreamstick --update-env
+  ```
+- Live site: https://app.dreamstickadventures.com (DigitalOcean Droplet at 24.199.104.222)
+- Code flow: edit in Replit → push to GitHub → pull on DigitalOcean
 
 ## Gotchas
 
