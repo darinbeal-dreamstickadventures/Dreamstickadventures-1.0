@@ -159,6 +159,10 @@ app.get('/terms', (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'terms.html'));
 });
 
+app.get('/success', (_req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'success.html'));
+});
+
 // ── Stripe checkout ──────────────────────────────────────────────────────────
 
 /**
