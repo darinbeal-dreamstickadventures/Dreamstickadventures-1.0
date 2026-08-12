@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Welcome to DreamStick Adventures! 🌟</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      background: #07071a;
+      font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 16px 60px;
+      overflow-x: hidden;
+    }
+
+    /* Starfield */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(1px 1px at 15% 20%, #fff 0%, transparent 100%),
+        radial-gradient(1px 1px at 42% 8%,  #c4b5fd 0%, transparent 100%),
+        radial-gradient(1.5px 1.5px at 68% 35%, #fff 0%, transparent 100%),
+        radial-gradient(1px 1px at 82% 12%, #c4b5fd 0%, transparent 100%),
+        radial-gradient(1px 1px at 27% 55%, #fff 0%, transparent 100%),
+        radial-gradient(1px 1px at 91% 60%, #c4b5fd 0%, transparent 100%),
+        radial-gradient(1.5px 1.5px at 5%  75%, #fff 0%, transparent 100%),
+        radial-gradient(1px 1px at 55% 80%, #fff 0%, transparent 100%),
+        radial-gradient(1px 1px at 73% 90%, #c4b5fd 0%, transparent 100%),
+        radial-gradient(1px 1px at 35% 92%, #fff 0%, transparent 100%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .card {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 600px;
+      background: linear-gradient(160deg, #12122e 0%, #1a1042 100%);
+      border: 1px solid rgba(167,139,250,0.25);
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: 0 0 80px rgba(124,58,237,0.3), 0 8px 40px rgba(0,0,0,0.6);
+    }
+
+    /* Top glow bar */
+    .card-top {
+      height: 5px;
+      background: linear-gradient(90deg, #7c3aed, #a855f7, #ec4899, #a855f7, #7c3aed);
+      background-size: 200% 100%;
+      animation: shimmer 3s linear infinite;
+    }
+    @keyframes shimmer { to { background-position: 200% 0; } }
+
+    .card-body { padding: 48px 44px 52px; text-align: center; }
+
+    /* Burst icon */
+    .icon-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 28px;
+    }
+    .icon-wrap::before {
+      content: '';
+      position: absolute;
+      width: 120px; height: 120px;
+      background: radial-gradient(circle, rgba(124,58,237,0.35) 0%, transparent 70%);
+      border-radius: 50%;
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.15);opacity:0.7} }
+    .icon-emoji { font-size: 72px; line-height: 1; position: relative; }
+
+    .eyebrow {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: #a78bfa;
+      margin-bottom: 14px;
+    }
+
+    h1 {
+      font-size: clamp(26px, 5vw, 34px);
+      font-weight: 900;
+      line-height: 1.15;
+      margin-bottom: 16px;
+      background: linear-gradient(135deg, #fff 0%, #c4b5fd 60%, #f9a8d4 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      font-size: 17px;
+      color: #94a3b8;
+      line-height: 1.65;
+      margin-bottom: 40px;
+      max-width: 440px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* Steps */
+    .steps {
+      text-align: left;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(167,139,250,0.15);
+      border-radius: 16px;
+      padding: 28px 32px;
+      margin-bottom: 36px;
+    }
+    .steps-title {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #a78bfa;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    .step:last-child { margin-bottom: 0; }
+    .step-num {
+      flex-shrink: 0;
+      width: 30px; height: 30px;
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 800; color: #fff;
+      margin-top: 1px;
+    }
+    .step-text strong { color: #e2e8f0; font-size: 15px; display: block; margin-bottom: 2px; }
+    .step-text span  { color: #64748b; font-size: 13px; line-height: 1.5; }
+
+    /* CTA */
+    .cta {
+      display: inline-block;
+      padding: 18px 48px;
+      background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+      color: #fff;
+      font-size: 17px;
+      font-weight: 800;
+      text-decoration: none;
+      border-radius: 12px;
+      letter-spacing: 0.3px;
+      box-shadow: 0 4px 24px rgba(124,58,237,0.5);
+      transition: transform 0.18s, box-shadow 0.18s;
+      margin-bottom: 18px;
+    }
+    .cta:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(124,58,237,0.65); }
+
+    .cta-note {
+      font-size: 13px;
+      color: #475569;
+    }
+
+    /* Divider */
+    .divider {
+      border: none;
+      border-top: 1px solid rgba(167,139,250,0.12);
+      margin: 40px 0;
+    }
+
+    /* Perks row */
+    .perks {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .perk {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(124,58,237,0.12);
+      border: 1px solid rgba(167,139,250,0.2);
+      border-radius: 100px;
+      padding: 7px 14px;
+      font-size: 13px;
+      color: #c4b5fd;
+      font-weight: 600;
+    }
+    .perk-icon { font-size: 15px; }
+
+    .support {
+      margin-top: 20px;
+      font-size: 13px;
+      color: #475569;
+      line-height: 1.6;
+    }
+    .support a { color: #a78bfa; text-decoration: none; }
+    .support a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <div class="card-top"></div>
+    <div class="card-body">
+
+      <div class="icon-wrap">
+        <div class="icon-emoji">🌟</div>
+      </div>
+
+      <div class="eyebrow">DreamStick Adventures</div>
+      <h1>Welcome to the Adventure!</h1>
+      <p class="subtitle">
+        You're now part of the DreamStick family. Every week, your child gets a brand-new personalized bedtime story — starring <em>them</em>.
+      </p>
+
+      <!-- What happens next -->
+      <div class="steps">
+        <div class="steps-title">Here's what happens next</div>
+
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-text">
+            <strong>Create your child's character</strong>
+            <span>Tell us their name, age, and choose their magical sidekick — it takes less than 2 minutes.</span>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-text">
+            <strong>We render their story</strong>
+            <span>Our storytelling engine crafts a unique adventure and emails you a private video link.</span>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-text">
+            <strong>A new story every week</strong>
+            <span>Fresh episodes land in your inbox weekly — no repeats, always personalized.</span>
+          </div>
+        </div>
+      </div>
+
+      <a href="/free" class="cta">✨ &nbsp;Create Your Child's Character</a>
+      <div class="cta-note">It's quick, fun, and free as part of your subscription</div>
+
+      <hr class="divider">
+
+      <div class="perks">
+        <div class="perk"><span class="perk-icon">🎬</span> Weekly stories</div>
+        <div class="perk"><span class="perk-icon">🧒</span> Personalized to your child</div>
+        <div class="perk"><span class="perk-icon">🔒</span> Private video links</div>
+        <div class="perk"><span class="perk-icon">📧</span> Delivered to your inbox</div>
+      </div>
+
+      <p class="support">
+        Questions? Just reply to your welcome email or write us at<br>
+        <a href="mailto:adventures@dreamstickadventures.com">adventures@dreamstickadventures.com</a> — we'd love to hear from you.
+      </p>
+
+    </div>
+  </div>
+
+</body>
+</html>

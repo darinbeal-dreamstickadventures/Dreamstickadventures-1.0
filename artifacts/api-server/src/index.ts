@@ -14,7 +14,7 @@ import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { renderVideo } from './renderer.js';
 import { generateStoryAudio, generateSceneAudio } from './narration.js';
-import { sendVideoReadyEmail, sendConfirmationEmail, sendDripEmail } from './email.js';
+import { sendVideoReadyEmail, sendConfirmationEmail, sendDripEmail, sendWelcomeEmail } from './email.js';
 import { uploadToR2, r2FileExists, r2PublicVideoUrl } from './r2.js';
 
 // Prevent EPIPE / unhandled async rejection from crashing the server
@@ -109,6 +109,8 @@ app.post('/api/stripe-webhook', express.raw({ type: 'application/json' }), async
         res.status(500).json({ error: 'DB update failed' });
         return;
       }
+      // Send welcome email (non-fatal)
+      sendWelcomeEmail({ toEmail: email, plan }).catch(() => {});
     } else {
       console.warn(`[webhook] checkout.session.completed — no email or unpaid (status: ${session.payment_status})`);
     }
@@ -264,7 +266,7 @@ app.get('/api/success', async (req, res): Promise<void> => {
     }
   }
 
-  res.redirect('/form');
+  res.redirect('/success');
 });
 
 app.get('/api/cancel', (_req, res) => {

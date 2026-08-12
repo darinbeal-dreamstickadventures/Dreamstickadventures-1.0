@@ -408,6 +408,190 @@ export async function sendDripEmail(opts: DripEmailOptions, emailNumber: 1 | 2 |
   }
 }
 
+// ── Welcome email ─────────────────────────────────────────────────────────────
+
+export interface WelcomeEmailOptions {
+  toEmail:   string;
+  childName?: string;   // may be unknown at checkout time
+  plan?:      string;
+}
+
+function buildWelcomeHtml(opts: WelcomeEmailOptions): string {
+  const childLine = opts.childName
+    ? `<strong style="color:#c4b5fd;">${opts.childName}</strong>`
+    : 'your child';
+  const FREE_URL  = 'https://app.dreamstickadventures.com/free';
+  const UPGRADE_URL = 'https://app.dreamstickadventures.com/pricing';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Welcome to DreamStick Adventures!</title>
+</head>
+<body style="margin:0;padding:0;background:#07071a;font-family:'Segoe UI',Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#07071a;padding:36px 16px 48px;">
+<tr><td align="center">
+<table width="580" cellpadding="0" cellspacing="0" style="max-width:580px;width:100%;background:linear-gradient(160deg,#12122e 0%,#1a1042 100%);border-radius:20px;overflow:hidden;box-shadow:0 4px 48px rgba(0,0,0,0.6);border:1px solid rgba(167,139,250,0.2);">
+
+  <!-- Shimmer bar -->
+  <tr><td style="height:5px;background:linear-gradient(90deg,#7c3aed,#a855f7,#ec4899,#a855f7,#7c3aed);"></td></tr>
+
+  <!-- Header -->
+  <tr>
+    <td style="background:linear-gradient(135deg,#1a1a4e 0%,#2d1b69 100%);padding:44px 40px 36px;text-align:center;">
+      <div style="font-size:64px;margin-bottom:10px;">🌟</div>
+      <div style="color:#a78bfa;font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;margin-bottom:14px;">DreamStick Adventures</div>
+      <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:900;line-height:1.2;">
+        Welcome to the Adventure!
+      </h1>
+    </td>
+  </tr>
+
+  <!-- Body -->
+  <tr>
+    <td style="padding:40px 44px;">
+
+      <p style="margin:0 0 20px;color:#94a3b8;font-size:16px;line-height:1.7;">
+        You're officially part of the DreamStick family 🎉 Every week, ${childLine} will star in a brand-new personalized bedtime story — crafted just for them, delivered right to your inbox.
+      </p>
+
+      <!-- What to expect -->
+      <table cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 28px;">
+        <tr>
+          <td style="background:rgba(255,255,255,0.04);border:1px solid rgba(167,139,250,0.15);border-radius:14px;padding:24px 28px;">
+            <div style="color:#a78bfa;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:18px;">What to expect</div>
+
+            <table cellpadding="0" cellspacing="0" width="100%">
+              <tr>
+                <td style="padding-bottom:16px;">
+                  <table cellpadding="0" cellspacing="0"><tr>
+                    <td style="width:32px;height:32px;background:linear-gradient(135deg,#7c3aed,#a855f7);border-radius:50%;text-align:center;vertical-align:middle;font-size:13px;font-weight:800;color:#fff;">1</td>
+                    <td style="padding-left:14px;">
+                      <div style="color:#e2e8f0;font-size:15px;font-weight:700;margin-bottom:2px;">Set up your child's character</div>
+                      <div style="color:#64748b;font-size:13px;line-height:1.5;">Tell us their name, age, and pick their magical sidekick — takes 2 minutes.</div>
+                    </td>
+                  </tr></table>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding-bottom:16px;">
+                  <table cellpadding="0" cellspacing="0"><tr>
+                    <td style="width:32px;height:32px;background:linear-gradient(135deg,#7c3aed,#a855f7);border-radius:50%;text-align:center;vertical-align:middle;font-size:13px;font-weight:800;color:#fff;">2</td>
+                    <td style="padding-left:14px;">
+                      <div style="color:#e2e8f0;font-size:15px;font-weight:700;margin-bottom:2px;">We craft their story</div>
+                      <div style="color:#64748b;font-size:13px;line-height:1.5;">Our storytelling engine renders a unique adventure and emails you a private video link.</div>
+                    </td>
+                  </tr></table>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <table cellpadding="0" cellspacing="0"><tr>
+                    <td style="width:32px;height:32px;background:linear-gradient(135deg,#7c3aed,#a855f7);border-radius:50%;text-align:center;vertical-align:middle;font-size:13px;font-weight:800;color:#fff;">3</td>
+                    <td style="padding-left:14px;">
+                      <div style="color:#e2e8f0;font-size:15px;font-weight:700;margin-bottom:2px;">New story every week</div>
+                      <div style="color:#64748b;font-size:13px;line-height:1.5;">Fresh episodes every week — no repeats, always personalized to ${childLine}.</div>
+                    </td>
+                  </tr></table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+
+      <!-- Primary CTA -->
+      <table cellpadding="0" cellspacing="0" style="margin:0 auto 32px;">
+        <tr>
+          <td style="background:linear-gradient(135deg,#7c3aed,#a855f7);border-radius:12px;box-shadow:0 4px 20px rgba(124,58,237,0.45);">
+            <a href="${FREE_URL}" target="_blank"
+               style="display:inline-block;padding:18px 48px;color:#ffffff;font-size:17px;font-weight:800;text-decoration:none;letter-spacing:0.3px;">
+              ✨&nbsp; Create ${opts.childName ? opts.childName + "'s" : "Your Child's"} Character
+            </a>
+          </td>
+        </tr>
+      </table>
+
+      <!-- Upgrade info -->
+      <table cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 28px;">
+        <tr>
+          <td style="background:rgba(124,58,237,0.1);border:1px solid rgba(167,139,250,0.2);border-radius:12px;padding:20px 24px;">
+            <div style="color:#c4b5fd;font-size:14px;font-weight:700;margin-bottom:6px;">Want even more magic? 🚀</div>
+            <div style="color:#64748b;font-size:13px;line-height:1.6;margin-bottom:12px;">
+              Upgrade to the <strong style="color:#94a3b8;">Family Plan</strong> to add multiple children and themes, or the <strong style="color:#94a3b8;">Nightly Plan</strong> for a fresh story every single night.
+            </div>
+            <a href="${UPGRADE_URL}" target="_blank"
+               style="color:#a78bfa;font-size:13px;font-weight:700;text-decoration:none;">
+              View all plans →
+            </a>
+          </td>
+        </tr>
+      </table>
+
+      <!-- Support note -->
+      <p style="margin:0;color:#475569;font-size:13px;line-height:1.7;text-align:center;">
+        Questions? Just reply to this email — we're real people and we'd love to hear from you.<br>
+        <a href="mailto:adventures@dreamstickadventures.com" style="color:#a78bfa;text-decoration:none;">adventures@dreamstickadventures.com</a>
+      </p>
+
+    </td>
+  </tr>
+
+  <!-- Footer -->
+  <tr>
+    <td style="background:#0a0a1a;padding:20px 40px;text-align:center;border-top:1px solid rgba(167,139,250,0.1);">
+      <p style="margin:0;color:#334155;font-size:12px;line-height:1.6;">
+        &copy; ${new Date().getFullYear()} DreamStick Adventures &mdash; adventures@dreamstickadventures.com<br>
+        You're receiving this because you just subscribed. Welcome aboard!
+      </p>
+    </td>
+  </tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>`;
+}
+
+/**
+ * Send the subscription welcome email via SendGrid.
+ * Non-fatal — logs and returns false on failure rather than throwing.
+ */
+export async function sendWelcomeEmail(opts: WelcomeEmailOptions): Promise<boolean> {
+  const apiKey = process.env.SENDGRID_API_KEY;
+  if (!apiKey) {
+    console.error('[email] SENDGRID_API_KEY not set — skipping welcome email');
+    return false;
+  }
+  const body = {
+    personalizations: [{ to: [{ email: opts.toEmail }] }],
+    from:     { email: FROM_EMAIL, name: FROM_NAME },
+    reply_to: { email: FROM_EMAIL, name: FROM_NAME },
+    subject:  'Welcome to DreamStick Adventures! 🌟',
+    content:  [{ type: 'text/html', value: buildWelcomeHtml(opts) }],
+  };
+  try {
+    const res = await fetch(SENDGRID_API, {
+      method:  'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    });
+    if (res.ok || res.status === 202) {
+      console.log(`[email] Sent welcome email to ${opts.toEmail} (status ${res.status})`);
+      return true;
+    }
+    const text = await res.text().catch(() => '');
+    console.error(`[email] SendGrid welcome ${res.status}: ${text.slice(0, 400)}`);
+    return false;
+  } catch (e: any) {
+    console.error('[email] welcome fetch error:', e.message);
+    return false;
+  }
+}
+
 /**
  * Send the "your video is ready" email via SendGrid.
  * Non-fatal — logs and returns false on failure rather than throwing.
