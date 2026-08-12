@@ -285,7 +285,7 @@ function buildDrip1Html(opts: DripEmailOptions): string {
     ${p(`Imagine getting that same magic delivered to your inbox every single week.`)}
     ${p(`A new story. A new adventure.<br><strong style="color:#c4b5fd;">${opts.childName}</strong> as the hero every time.`)}
     ${p(`For less than a cup of coffee a week, you can keep the bedtime magic going.`)}
-    ${ctaButton(`Keep the Adventure Going – $7/mo`, CHECKOUT_URL)}`,
+    ${ctaButton(`Keep the Adventure Going – $7/mo`, `${CHECKOUT_URL}?email=${encodeURIComponent(opts.toEmail)}`)}`,
   );
 }
 
@@ -310,7 +310,7 @@ function buildDrip2Html(opts: DripEmailOptions): string {
     </p>
     ${p(`A brand new personalized story every week starring <strong style="color:#c4b5fd;">${opts.childName}</strong>.`)}
     ${p(`Their name. Their adventure. Their golden hero moment.`)}
-    ${ctaButton(`Start Weekly Adventures – $7/mo`, CHECKOUT_URL)}`,
+    ${ctaButton(`Start Weekly Adventures – $7/mo`, `${CHECKOUT_URL}?email=${encodeURIComponent(opts.toEmail)}`)}`,
   );
 }
 
@@ -339,7 +339,7 @@ function buildDrip3Html(_opts: DripEmailOptions): string {
         <p style="margin:0;color:#a78bfa;font-size:13px;font-weight:700;">— Parent of twins, age 5</p>
       </td></tr>
     </table>
-    ${ctaButton(`Join DreamStick Adventures – $7/mo`, CHECKOUT_URL)}`,
+    ${ctaButton(`Join DreamStick Adventures – $7/mo`, `${CHECKOUT_URL}?email=${encodeURIComponent(opts.toEmail)}`)}`,
   );
 }
 
@@ -356,7 +356,7 @@ function buildDrip4Html(opts: DripEmailOptions): string {
     ${p(`That story doesn't have to end.`)}
     ${p(`For just $7 a month — less than a single trip to the movies — <strong style="color:#c4b5fd;">${opts.childName}</strong> gets a brand new personalized adventure delivered straight to your inbox every week.`)}
     ${p(`No screens to manage. No apps to download.<br>Just pure bedtime magic.`)}
-    ${ctaButton(`Keep ${opts.childName}'s Story Going – $7/mo`, CHECKOUT_URL)}
+    ${ctaButton(`Keep ${opts.childName}'s Story Going – $7/mo`, `${CHECKOUT_URL}?email=${encodeURIComponent(opts.toEmail)}`)}
     <p style="margin:0;color:#64748b;font-size:13px;line-height:1.6;">
       P.S. Plans start at just $7/mo and you can cancel anytime. No risk. Just magic.
     </p>`,
