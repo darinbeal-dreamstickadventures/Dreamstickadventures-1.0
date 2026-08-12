@@ -159,6 +159,20 @@ app.get('/terms', (_req, res) => {
 
 // ── Stripe checkout ──────────────────────────────────────────────────────────
 
+/**
+ * Derive the public base URL for Stripe success/cancel redirects.
+ * Priority: WATCH_DOMAIN env var → request Host header → REPLIT_DOMAINS fallback.
+ * WATCH_DOMAIN is the right answer on DigitalOcean and is always set.
+ */
+function siteOrigin(req: express.Request): string {
+  const watchDomain = process.env.WATCH_DOMAIN?.trim();
+  if (watchDomain) return watchDomain.replace(/\/$/, '');
+  const host = req.headers.host;
+  if (host) return `${req.protocol}://${host}`;
+  const replitDomain = (process.env.REPLIT_DOMAINS ?? '').split(',')[0].trim();
+  return replitDomain ? `https://${replitDomain}` : 'https://app.dreamstickadventures.com';
+}
+
 // GET /api/checkout/:plan — direct link that creates a session and redirects.
 // Email is optional (?email=...) and pre-fills the Stripe form if provided.
 // Used by pricing page buttons and drip email CTAs.
@@ -172,9 +186,7 @@ app.get('/api/checkout/:plan', async (req, res): Promise<void> => {
     return;
   }
 
-  const origin =
-    req.headers.origin ??
-    `https://${(process.env.REPLIT_DOMAINS ?? '').split(',')[0].trim()}`;
+  const origin = siteOrigin(req);
 
   try {
     const session = await stripe.checkout.sessions.create({
@@ -202,9 +214,7 @@ app.post('/api/create-checkout-session', async (req, res): Promise<void> => {
     return;
   }
 
-  const origin =
-    req.headers.origin ??
-    `https://${(process.env.REPLIT_DOMAINS ?? '').split(',')[0].trim()}`;
+  const origin = siteOrigin(req);
 
   try {
     const session = await stripe.checkout.sessions.create({
