@@ -55,6 +55,14 @@ pool.query(`
     ADD COLUMN IF NOT EXISTS drip_email_4_sent_at TIMESTAMPTZ
 `).then(() => console.log('[db] drip columns ensured'))
   .catch((e: any) => console.error('[db] drip column migration failed:', e.message));
+
+// Ensure retry-tracking columns exist (idempotent).
+pool.query(`
+  ALTER TABLE characters
+    ADD COLUMN IF NOT EXISTS failed_attempts     INTEGER DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS last_failure_reason TEXT
+`).then(() => console.log('[db] failed_attempts columns ensured'))
+  .catch((e: any) => console.error('[db] failed_attempts migration failed:', e.message));
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -583,6 +591,8 @@ async function runRenderJob(job: RenderJob, char: Character): Promise<void> {
 // upload → email pipeline as an on-demand job, but sequentially (one at a
 // time) rather than fire-and-forget, so a slow/failed render for one
 // subscriber can't fan out into unbounded concurrent ffmpeg processes.
+const MAX_RENDER_FAILURES = 3;
+
 async function runNightlyJobForCharacter(char: Character & { id: number }): Promise<void> {
   const job: RenderJob = {
     id: randomUUID(), status: 'pending', created: Date.now(),
@@ -592,14 +602,39 @@ async function runNightlyJobForCharacter(char: Character & { id: number }): Prom
   };
   jobs.set(job.id, job);
 
-  await runRenderJob(job, char);
-
-  if (job.status !== 'done') {
-    throw new Error(job.error ?? 'render job did not complete');
+  try {
+    await runRenderJob(job, char);
+  } catch (e: any) {
+    // Increment failure counter before re-throwing so the scheduler can log it.
+    await pool.query(
+      `UPDATE characters
+          SET failed_attempts     = COALESCE(failed_attempts, 0) + 1,
+              last_failure_reason = $2
+        WHERE id = $1`,
+      [char.id, e.message ?? 'unknown error'],
+    ).catch(() => {});
+    throw e;
   }
 
+  if (job.status !== 'done') {
+    const reason = job.error ?? 'render job did not complete';
+    await pool.query(
+      `UPDATE characters
+          SET failed_attempts     = COALESCE(failed_attempts, 0) + 1,
+              last_failure_reason = $2
+        WHERE id = $1`,
+      [char.id, reason],
+    ).catch(() => {});
+    throw new Error(reason);
+  }
+
+  // Success — reset failure tracking and record delivery time.
   await pool.query(
-    `UPDATE characters SET last_video_sent_at = now() WHERE id = $1`,
+    `UPDATE characters
+        SET last_video_sent_at  = now(),
+            failed_attempts     = 0,
+            last_failure_reason = NULL
+      WHERE id = $1`,
     [char.id],
   );
 }
@@ -611,7 +646,10 @@ async function runNightlyScheduler(): Promise<void> {
   let subscribers: (Character & { id: number })[] = [];
   try {
     const result = await pool.query(
-      `SELECT * FROM characters WHERE subscription_status = 'active' ORDER BY id ASC`,
+      `SELECT * FROM characters
+        WHERE subscription_status = 'active'
+          AND COALESCE(failed_attempts, 0) < ${MAX_RENDER_FAILURES}
+        ORDER BY id ASC`,
     );
     subscribers = result.rows as (Character & { id: number })[];
   } catch (e: any) {
