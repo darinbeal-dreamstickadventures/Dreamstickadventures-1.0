@@ -591,7 +591,8 @@ async function runRenderJob(job: RenderJob, char: Character): Promise<void> {
 // upload → email pipeline as an on-demand job, but sequentially (one at a
 // time) rather than fire-and-forget, so a slow/failed render for one
 // subscriber can't fan out into unbounded concurrent ffmpeg processes.
-const MAX_RENDER_FAILURES = 3;
+const MAX_RENDER_FAILURES   = 3;
+const NIGHTLY_MAX_CHARACTERS = 5; // hard cap per run — prevents runaway credit burn
 
 async function runNightlyJobForCharacter(char: Character & { id: number }): Promise<void> {
   const job: RenderJob = {
@@ -649,7 +650,8 @@ async function runNightlyScheduler(): Promise<void> {
       `SELECT * FROM characters
         WHERE subscription_status = 'active'
           AND COALESCE(failed_attempts, 0) < ${MAX_RENDER_FAILURES}
-        ORDER BY id ASC`,
+        ORDER BY id ASC
+        LIMIT ${NIGHTLY_MAX_CHARACTERS}`,
     );
     subscribers = result.rows as (Character & { id: number })[];
   } catch (e: any) {
@@ -841,10 +843,15 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
       return;
     }
 
-    // ── Testing bypass — skip all limits for this address ─────────────────
-    const isBypassEmail = parent_email.toLowerCase().trim() === 'darinbeal@gmail.com';
+    // ── Test-account bypass: skip IP rate limit but still cap at 3 submissions ──
+    // Add emails here for internal testing only. Never grants unlimited access.
+    const TEST_BYPASS_EMAILS = new Set(['darinbeal@gmail.com']);
+    const TEST_BYPASS_MAX = 3; // max free-sample submissions for bypass accounts
 
-    // ── Rate limit: 1 request per IP per hour ─────────────────────────────
+    const normalizedEmail = parent_email.toLowerCase().trim();
+    const isBypassEmail   = TEST_BYPASS_EMAILS.has(normalizedEmail);
+
+    // ── Rate limit: 1 request per IP per hour (bypass emails skip this) ───
     if (!isBypassEmail) {
       const lastRequest = freeVideoIpRequests.get(ip);
       if (lastRequest !== undefined && Date.now() - lastRequest < FREE_VIDEO_IP_WINDOW_MS) {
@@ -857,16 +864,16 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
       }
     }
 
-    // Check if this email has already claimed a free video (max 1 per email, ever)
-    if (!isBypassEmail) {
-      const existing = await pool.query(
-        `SELECT id FROM characters WHERE parent_email = $1 AND subscription_status = 'free-sample' LIMIT 1`,
-        [parent_email.toLowerCase().trim()],
-      );
-      if (existing.rows.length > 0) {
-        res.json({ success: true, already_claimed: true });
-        return;
-      }
+    // ── Submission cap: 1 per email for real users; TEST_BYPASS_MAX for testers ──
+    const maxAllowed = isBypassEmail ? TEST_BYPASS_MAX : 1;
+    const existing = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM characters WHERE parent_email = $1 AND subscription_status = 'free-sample'`,
+      [normalizedEmail],
+    );
+    if (parseInt(existing.rows[0].cnt, 10) >= maxAllowed) {
+      console.log(`[free-video] Submission cap reached for ${normalizedEmail} (max ${maxAllowed})`);
+      res.json({ success: true, already_claimed: true });
+      return;
     }
 
     // Only mark the IP as "used" once we know the request will actually
@@ -883,7 +890,7 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
        VALUES ($1, $2, $3, $4, $5, $6, $7, 'free-sample')
        RETURNING id`,
       [
-        parent_email.toLowerCase().trim(),
+        normalizedEmail,
         child_name.trim(),
         resolvedAge,
         character_type ?? 'boy',
@@ -904,7 +911,7 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
 
     const job: RenderJob = {
       id: randomUUID(), status: 'pending', created: Date.now(),
-      parentEmail: parent_email.toLowerCase().trim(),
+      parentEmail: normalizedEmail,
       childName:   child_name.trim(),
       theme,
     };
@@ -913,7 +920,7 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
     // Fire confirmation email immediately — before rendering starts — so the
     // parent knows the video is on its way and can close the tab.
     sendConfirmationEmail({
-      toEmail:   parent_email.toLowerCase().trim(),
+      toEmail:   normalizedEmail,
       childName: child_name.trim(),
       theme,
     }).catch((e: unknown) => console.error('[free-video] confirmation email failed:', (e as Error).message));
