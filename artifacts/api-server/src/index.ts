@@ -767,8 +767,25 @@ app.post('/api/admin/run-nightly-scheduler', async (req, res): Promise<void> => 
   res.json({ success: true, message: 'Nightly scheduler + drip sequence started in the background — check server logs for progress.' });
 });
 
+// Protect direct render requests. Unlike /api/free-video, this endpoint is
+// intended only for trusted admin tooling and must never be publicly callable.
+function requireAdminBearer(req: express.Request, res: express.Response, next: express.NextFunction): void {
+  const configuredToken = process.env.ADMIN_TOKEN?.trim();
+  const authorization = req.headers.authorization ?? '';
+  const token = authorization.startsWith('Bearer ')
+    ? authorization.slice('Bearer '.length).trim()
+    : '';
+
+  if (!configuredToken || !token || token !== configuredToken) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+
+  next();
+}
+
 // Start a render job for a DB character
-app.post('/api/render-video', async (req, res): Promise<void> => {
+app.post('/api/render-video', requireAdminBearer, async (req, res): Promise<void> => {
   try {
     const { character_id } = req.body as { character_id: number };
     if (!character_id) {
