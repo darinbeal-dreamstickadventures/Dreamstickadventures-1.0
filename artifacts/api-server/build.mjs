@@ -3,12 +3,29 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm, cp } from "node:fs/promises";
+import { rm, cp, stat } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
 
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
+
+async function assertRequiredPublicFiles() {
+  const freePage = path.resolve(artifactDir, "public/free.html");
+
+  try {
+    const fileInfo = await stat(freePage);
+    if (!fileInfo.isFile()) {
+      throw new Error("path exists but is not a regular file");
+    }
+  } catch (error) {
+    throw new Error(
+      `Build stopped: required public/free.html is missing or invalid. ` +
+      `The build does not rename or back up this file. Restore it before deploying. ` +
+      `Details: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
 
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
@@ -121,7 +138,8 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
   });
 }
 
-buildAll()
+assertRequiredPublicFiles()
+  .then(() => buildAll())
   .then(() => cp(
     path.resolve(artifactDir, "public"),
     path.resolve(artifactDir, "dist/public"),
