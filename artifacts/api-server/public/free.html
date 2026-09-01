@@ -361,7 +361,14 @@ select option { background: #160930; }
           <input type="email" id="parent_email" placeholder="you@example.com" required>
         </div>
 
-        <p class="shipping-note" id="shipping-note" aria-live="polite">📦 FREE mystery squishy — checking availability…</p>
+        <p class="shipping-note" id="shipping-note">
+          <strong>📦 Claim your FREE surprise!</strong><br><br>
+          The first families to sign up<br>
+          get a FREE surprise mailed to<br>
+          their door — just for trying<br>
+          DreamStick Adventures!<br><br>
+          Enter your US address below:
+        </p>
 
         <div class="field">
           <label>Shipping Name</label>
@@ -502,34 +509,6 @@ function setError(msg) {
   el.style.display = msg ? 'block' : 'none';
 }
 
-const shippingNote = document.getElementById('shipping-note');
-const soldOutShippingNote = 'Optional: enter your address for future DreamStick surprises';
-
-function updateSquishyOffer(remaining) {
-  if (remaining > 0) {
-    shippingNote.textContent = `📦 FREE mystery squishy — only ${remaining} left!`;
-  } else {
-    shippingNote.textContent = soldOutShippingNote;
-  }
-}
-
-async function refreshSquishyInventory() {
-  try {
-    const res = await fetch('/api/squishy-inventory', { cache: 'no-store' });
-    if (!res.ok) throw new Error('Inventory request failed');
-    const data = await res.json();
-    const remaining = Number(data.remaining);
-    if (!Number.isInteger(remaining) || remaining < 0) throw new Error('Invalid inventory response');
-    updateSquishyOffer(remaining);
-  } catch {
-    // Do not promise a squishy when availability cannot be confirmed.
-    shippingNote.textContent = soldOutShippingNote;
-  }
-}
-
-refreshSquishyInventory();
-setInterval(refreshSquishyInventory, 30000);
-
 async function submitFree(e) {
   e.preventDefault();
   setError('');
@@ -579,14 +558,7 @@ async function submitFree(e) {
 
     if (data.already_claimed) {
       show('screen-already');
-      refreshSquishyInventory();
       return;
-    }
-
-    if (Number.isInteger(data.squishy_remaining) && data.squishy_remaining >= 0) {
-      updateSquishyOffer(data.squishy_remaining);
-    } else {
-      refreshSquishyInventory();
     }
 
     // Show waiting screen — delivery is via email, no polling needed
