@@ -36,6 +36,27 @@ body {
 }
 .headline em { color: #f7e96b; font-style: normal; }
 
+.top-surprise-teaser {
+  text-align: center;
+  color: #f4f0ff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.4;
+  margin: 18px 0 24px;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, #251541, #1e1038);
+  border: 1px solid rgba(247, 233, 107, 0.75);
+  border-radius: 14px;
+  box-shadow: 0 0 20px rgba(247, 233, 107, 0.1);
+}
+.top-surprise-teaser strong {
+  display: block;
+  color: #f7e96b;
+  font-size: 1.05rem;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
 .subhead {
   text-align: center;
   color: #a898d8;
@@ -306,6 +327,14 @@ select option { background: #160930; }
   <!-- ── Form screen ── -->
   <div id="screen-form">
     <h1 class="headline">Get your child's <em>FREE</em> personalized<br>bedtime cartoon in the next 5 minutes</h1>
+    <div class="top-surprise-teaser" role="note">
+      <strong>📦 FREE surprise gift included!</strong>
+      <span>
+        Sign up today and we'll mail a<br>
+        FREE surprise to your door!<br>
+        US addresses only — first families only!
+      </span>
+    </div>
     <p class="subhead">Every night, your child becomes the hero of their own magical story.</p>
 
     <form id="free-form" onsubmit="submitFree(event)">
