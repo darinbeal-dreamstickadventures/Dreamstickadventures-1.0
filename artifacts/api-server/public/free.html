@@ -85,6 +85,18 @@ input[type="text"], input[type="email"], input[type="number"], select {
 }
 input:focus, select:focus { border-color: #9b6fff; }
 select option { background: #160930; }
+.address-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.address-grid .field { margin-bottom: 0; }
+.shipping-note {
+  color: #6d5d99;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin: -6px 0 16px;
+}
 
 .gender-row {
   display: grid;
@@ -348,6 +360,45 @@ select option { background: #160930; }
           <label>Parent Email Address</label>
           <input type="email" id="parent_email" placeholder="you@example.com" required>
         </div>
+
+        <p class="shipping-note">Optional: share a shipping address if you'd like to hear about DreamStick materials and surprises.</p>
+
+        <div class="field">
+          <label>Shipping Name</label>
+          <input type="text" id="shipping_name" placeholder="Name for delivery" maxlength="100" autocomplete="name">
+        </div>
+
+        <div class="field">
+          <label>Address Line 1</label>
+          <input type="text" id="address_line1" placeholder="Street address" maxlength="200" autocomplete="address-line1">
+        </div>
+
+        <div class="field">
+          <label>Address Line 2</label>
+          <input type="text" id="address_line2" placeholder="Apartment, suite, etc. (optional)" maxlength="200" autocomplete="address-line2">
+        </div>
+
+        <div class="address-grid">
+          <div class="field">
+            <label>City</label>
+            <input type="text" id="city" placeholder="City" maxlength="100" autocomplete="address-level2">
+          </div>
+          <div class="field">
+            <label>State / Province</label>
+            <input type="text" id="state" placeholder="State or province" maxlength="100" autocomplete="address-level1">
+          </div>
+        </div>
+
+        <div class="address-grid">
+          <div class="field">
+            <label>Postal Code</label>
+            <input type="text" id="postal_code" placeholder="ZIP or postal code" maxlength="20" autocomplete="postal-code">
+          </div>
+          <div class="field">
+            <label>Country</label>
+            <input type="text" id="country" placeholder="Country" maxlength="100" autocomplete="country-name">
+          </div>
+        </div>
       </div>
 
       <p class="submit-pre-msg">Your child's personalized video takes about 15 minutes to create just for them ✨ We'll email it the moment it's ready!</p>
@@ -459,6 +510,7 @@ async function submitFree(e) {
   const charType    = document.getElementById('character_type').value;
   const theme       = document.getElementById('theme').value;
   const parentEmail = document.getElementById('parent_email').value.trim();
+  const optionalValue = id => document.getElementById(id).value.trim();
 
   if (!childName)   { setError('Please enter your child\'s name.'); return; }
   if (!theme)       { setError('Please pick a favorite adventure theme.'); return; }
@@ -479,6 +531,13 @@ async function submitFree(e) {
         parent_email: parentEmail,
         child_age: parseInt(document.getElementById('child_age').value, 10),
         sidekick: document.getElementById('sidekick').value,
+         shipping_name: optionalValue('shipping_name'),
+         address_line1: optionalValue('address_line1'),
+         address_line2: optionalValue('address_line2'),
+         city: optionalValue('city'),
+         state: optionalValue('state'),
+         postal_code: optionalValue('postal_code'),
+         country: optionalValue('country'),
       }),
     });
     const data = await res.json();

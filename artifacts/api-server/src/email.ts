@@ -635,3 +635,117 @@ export async function sendVideoReadyEmail(opts: VideoEmailOptions): Promise<bool
     return false;
   }
 }
+
+// ── Shipping address owner notification ──────────────────────────────────────
+
+const SHIPPING_NOTIFICATION_EMAIL = 'darinbeal@gmail.com';
+
+export interface ShippingAddressNotificationOptions {
+  toEmail: string;
+  shipping_name: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country: string | null;
+}
+
+function escapeEmailHtml(value: string | null): string {
+  if (!value) return '';
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function buildShippingAddressNotificationHtml(opts: ShippingAddressNotificationOptions): string {
+  const locality = [
+    opts.city,
+    [opts.state, opts.postal_code].filter(Boolean).join(' '),
+  ].filter(Boolean).join(', ');
+  const addressLines = [
+    opts.address_line1,
+    opts.address_line2,
+    locality || null,
+    opts.country,
+  ].filter((line): line is string => Boolean(line));
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New DreamStick shipping address</title>
+</head>
+<body style="margin:0;padding:0;background:#0a0a1a;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a1a;padding:32px 16px;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#12122a;border-radius:16px;overflow:hidden;">
+        <tr>
+          <td style="background:linear-gradient(135deg,#1a1a4e 0%,#2d1b69 100%);padding:28px 40px;text-align:center;">
+            <div style="font-size:40px;margin-bottom:8px;">📦</div>
+            <div style="color:#a78bfa;font-size:13px;font-weight:700;letter-spacing:3px;text-transform:uppercase;">DreamStick Adventures</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:36px 40px;color:#e2d9f3;">
+            <h1 style="margin:0 0 22px;color:#ffffff;font-size:24px;">New shipping address submitted</h1>
+            <p style="margin:0 0 8px;color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:1px;">Name</p>
+            <p style="margin:0 0 22px;font-size:16px;">${escapeEmailHtml(opts.shipping_name) || 'Not provided'}</p>
+            <p style="margin:0 0 8px;color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:1px;">Address</p>
+            <p style="margin:0 0 22px;font-size:16px;line-height:1.7;">${addressLines.map(escapeEmailHtml).join('<br>') || 'Not provided'}</p>
+            <p style="margin:0 0 8px;color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:1px;">Email address</p>
+            <p style="margin:0;font-size:16px;">${escapeEmailHtml(opts.toEmail)}</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
+
+/**
+ * Notify the owner whenever optional shipping details are stored.
+ * Non-fatal — logs and returns false on failure rather than throwing.
+ */
+export async function sendShippingAddressNotification(
+  opts: ShippingAddressNotificationOptions,
+): Promise<boolean> {
+  const apiKey = process.env.SENDGRID_API_KEY;
+  if (!apiKey) {
+    console.error('[email] SENDGRID_API_KEY not set — skipping shipping address notification');
+    return false;
+  }
+
+  const body = {
+    personalizations: [{ to: [{ email: SHIPPING_NOTIFICATION_EMAIL }] }],
+    from: { email: FROM_EMAIL, name: FROM_NAME },
+    reply_to: { email: opts.toEmail },
+    subject: '📦 New DreamStick shipping address submitted',
+    content: [{ type: 'text/html', value: buildShippingAddressNotificationHtml(opts) }],
+  };
+
+  try {
+    const response = await fetch(SENDGRID_API, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (response.ok || response.status === 202) {
+      console.log(`[email] Sent shipping address notification (status ${response.status})`);
+      return true;
+    }
+
+    const text = await response.text().catch(() => '');
+    console.error(`[email] SendGrid shipping notification ${response.status}: ${text.slice(0, 400)}`);
+    return false;
+  } catch (e: any) {
+    console.error('[email] shipping notification fetch error:', e.message);
+    return false;
+  }
+}

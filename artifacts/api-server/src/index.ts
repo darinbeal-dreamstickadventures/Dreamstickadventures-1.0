@@ -14,7 +14,13 @@ import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { renderVideo } from './renderer.js';
 import { generateStoryAudio, generateSceneAudio } from './narration.js';
-import { sendVideoReadyEmail, sendConfirmationEmail, sendDripEmail, sendWelcomeEmail } from './email.js';
+import {
+  sendVideoReadyEmail,
+  sendConfirmationEmail,
+  sendDripEmail,
+  sendWelcomeEmail,
+  sendShippingAddressNotification,
+} from './email.js';
 import { uploadToR2, r2FileExists, r2PublicVideoUrl } from './r2.js';
 
 // Prevent EPIPE / unhandled async rejection from crashing the server
@@ -45,6 +51,30 @@ if (!process.env.ANTHROPIC_API_KEY) {
 }
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+// Ensure shipping address storage exists before address requests are handled.
+const shippingAddressMigration = pool.query(`
+  CREATE TABLE IF NOT EXISTS shipping_addresses (
+    id              SERIAL PRIMARY KEY,
+    parent_email    TEXT NOT NULL,
+    recipient_name  TEXT,
+    address_line1   TEXT,
+    address_line2   TEXT,
+    city            TEXT,
+    state           TEXT,
+    postal_code     TEXT,
+    country         TEXT,
+    submitted_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS shipping_addresses_submitted_at_idx
+    ON shipping_addresses (submitted_at DESC);
+`).then(() => {
+  console.log('[db] shipping_addresses table ensured');
+  return true;
+}).catch((e: any) => {
+  console.error('[db] shipping_addresses migration failed:', e.message);
+  return false;
+});
 
 // Ensure drip-sequence columns exist (idempotent — safe to run on every startup).
 pool.query(`
@@ -769,12 +799,29 @@ app.post('/api/admin/run-nightly-scheduler', async (req, res): Promise<void> => 
 
 // Protect direct render requests. Unlike /api/free-video, this endpoint is
 // intended only for trusted admin tooling and must never be publicly callable.
+function extractAdminToken(req: express.Request): string {
+  const authorization = req.headers.authorization ?? '';
+
+  if (authorization.startsWith('Bearer ')) {
+    return authorization.slice('Bearer '.length).trim();
+  }
+
+  if (authorization.startsWith('Basic ')) {
+    try {
+      const decoded = Buffer.from(authorization.slice('Basic '.length), 'base64').toString('utf8');
+      const separator = decoded.indexOf(':');
+      return separator >= 0 ? decoded.slice(separator + 1).trim() : '';
+    } catch {
+      return '';
+    }
+  }
+
+  return '';
+}
+
 function requireAdminBearer(req: express.Request, res: express.Response, next: express.NextFunction): void {
   const configuredToken = process.env.ADMIN_TOKEN?.trim();
-  const authorization = req.headers.authorization ?? '';
-  const token = authorization.startsWith('Bearer ')
-    ? authorization.slice('Bearer '.length).trim()
-    : '';
+  const token = extractAdminToken(req);
 
   if (!configuredToken || !token || token !== configuredToken) {
     res.status(401).json({ error: 'Unauthorized' });
@@ -783,6 +830,46 @@ function requireAdminBearer(req: express.Request, res: express.Response, next: e
 
   next();
 }
+
+// Browser-friendly protection for the address page. Browsers can prompt for
+// HTTP Basic credentials; use any username and ADMIN_TOKEN as the password.
+// Bearer tokens remain accepted for scripted access to the same endpoint.
+function requireAdminBasic(req: express.Request, res: express.Response, next: express.NextFunction): void {
+  const configuredToken = process.env.ADMIN_TOKEN?.trim();
+  const token = extractAdminToken(req);
+
+  if (!configuredToken || !token || token !== configuredToken) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="DreamStick Admin"');
+    res.status(401).send('Unauthorized');
+    return;
+  }
+
+  next();
+}
+
+app.get('/admin/addresses', requireAdminBasic, (_req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'admin-addresses.html'));
+});
+
+app.get('/api/admin/addresses', requireAdminBasic, async (_req, res): Promise<void> => {
+  try {
+    if (!(await shippingAddressMigration)) {
+      res.status(503).json({ error: 'Address storage is unavailable' });
+      return;
+    }
+
+    const result = await pool.query(`
+      SELECT id, parent_email, recipient_name, address_line1, address_line2,
+             city, state, postal_code, country, submitted_at
+      FROM shipping_addresses
+      ORDER BY submitted_at DESC, id DESC
+    `);
+    res.json({ addresses: result.rows });
+  } catch (e: any) {
+    console.error('[admin] address list failed:', e.message);
+    res.status(500).json({ error: 'Unable to load addresses' });
+  }
+});
 
 // Start a render job for a DB character
 app.post('/api/render-video', requireAdminBearer, async (req, res): Promise<void> => {
@@ -835,30 +922,96 @@ setInterval(() => {
 }, 15 * 60 * 1000);
 
 function getClientIp(req: express.Request): string {
-  // Trust X-Forwarded-For's first entry when present (behind Replit's proxy),
-  // otherwise fall back to the socket address.
-  const fwd = req.headers['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd.length > 0) return fwd.split(',')[0].trim();
-  return req.socket.remoteAddress ?? 'unknown';
+  // Express resolves req.ip using the configured trusted-proxy policy instead
+  // of accepting an arbitrary client-supplied X-Forwarded-For value.
+  return req.ip || req.socket.remoteAddress || 'unknown';
+}
+
+interface ShippingAddressFields {
+  shipping_name: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country: string | null;
+}
+
+function normalizeOptionalAddressField(value: unknown, label: string, maxLength: number): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') throw new Error(`${label} must be text`);
+
+  const normalized = value.trim();
+  if (normalized.length > maxLength) throw new Error(`${label} is too long`);
+  return normalized || null;
 }
 
 app.post('/api/free-video', async (req, res): Promise<void> => {
   const ip = getClientIp(req);
+  let reservedIpAt: number | undefined;
+  let submissionCommitted = false;
 
   try {
-    const { child_name, character_type, theme, parent_email, child_age, sidekick } = req.body as {
+    const {
+      child_name,
+      character_type,
+      theme,
+      parent_email,
+      child_age,
+      sidekick,
+      shipping_name,
+      address_line1,
+      address_line2,
+      city,
+      state,
+      postal_code,
+      country,
+    } = req.body as {
       child_name: string;
       character_type?: string;
       theme: string;
       parent_email: string;
       child_age?: number;
       sidekick?: string;
+      shipping_name?: unknown;
+      address_line1?: unknown;
+      address_line2?: unknown;
+      city?: unknown;
+      state?: unknown;
+      postal_code?: unknown;
+      country?: unknown;
     };
 
     if (!child_name || !theme || !parent_email) {
       res.status(400).json({ error: 'child_name, theme, and parent_email are required' });
       return;
     }
+
+    let shippingAddress: ShippingAddressFields;
+    try {
+      shippingAddress = {
+        shipping_name: normalizeOptionalAddressField(shipping_name, 'Shipping name', 100),
+        address_line1: normalizeOptionalAddressField(address_line1, 'Address line 1', 200),
+        address_line2: normalizeOptionalAddressField(address_line2, 'Address line 2', 200),
+        city: normalizeOptionalAddressField(city, 'City', 100),
+        state: normalizeOptionalAddressField(state, 'State / province', 100),
+        postal_code: normalizeOptionalAddressField(postal_code, 'Postal code', 20),
+        country: normalizeOptionalAddressField(country, 'Country', 100),
+      };
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+      return;
+    }
+
+    // Country alone does not represent a submitted shipping address.
+    const hasShippingAddress = [
+      shippingAddress.shipping_name,
+      shippingAddress.address_line1,
+      shippingAddress.address_line2,
+      shippingAddress.city,
+      shippingAddress.state,
+      shippingAddress.postal_code,
+    ].some(Boolean);
 
     // ── Test-account bypass: skip IP rate limit but still cap at 3 submissions ──
     // Add emails here for internal testing only. Never grants unlimited access.
@@ -867,6 +1020,11 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
 
     const normalizedEmail = parent_email.toLowerCase().trim();
     const isBypassEmail   = TEST_BYPASS_EMAILS.has(normalizedEmail);
+
+    if (hasShippingAddress && !(await shippingAddressMigration)) {
+      res.status(503).json({ error: 'Shipping address storage is temporarily unavailable. Please try again.' });
+      return;
+    }
 
     // ── Rate limit: 1 request per IP per hour (bypass emails skip this) ───
     if (!isBypassEmail) {
@@ -879,43 +1037,99 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
         });
         return;
       }
+
+      // Reserve synchronously before the first database await so concurrent
+      // requests from the same IP cannot both pass the check.
+      reservedIpAt = Date.now();
+      freeVideoIpRequests.set(ip, reservedIpAt);
     }
 
     // ── Submission cap: 1 per email for real users; TEST_BYPASS_MAX for testers ──
     const maxAllowed = isBypassEmail ? TEST_BYPASS_MAX : 1;
-    const existing = await pool.query(
-      `SELECT COUNT(*) AS cnt FROM characters WHERE parent_email = $1 AND subscription_status = 'free-sample'`,
-      [normalizedEmail],
-    );
-    if (parseInt(existing.rows[0].cnt, 10) >= maxAllowed) {
-      console.log(`[free-video] Submission cap reached for ${normalizedEmail} (max ${maxAllowed})`);
-      res.json({ success: true, already_claimed: true });
-      return;
-    }
-
-    // Only mark the IP as "used" once we know the request will actually
-    // trigger a render (an already-claimed email doesn't burn the IP's slot).
-    freeVideoIpRequests.set(ip, Date.now());
 
     // Default to 6 when the form doesn't collect an age — avoids the
     // child_age NOT NULL constraint violation.
     const resolvedAge = Number.isFinite(child_age) && (child_age as number) > 0 ? Number(child_age) : 6;
 
-    // Save character to DB
-    const insertResult = await pool.query(
-      `INSERT INTO characters (parent_email, child_name, child_age, character_type, build, sidekick, theme, subscription_status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'free-sample')
-       RETURNING id`,
-      [
-        normalizedEmail,
-        child_name.trim(),
-        resolvedAge,
-        character_type ?? 'boy',
-        'average',
-        sidekick && sidekick !== 'none' ? sidekick : 'dragon',
-        theme,
-      ],
-    );
+    // Save the character and optional shipping address together so a failed
+    // address write cannot leave behind a render-triggering character record.
+    let characterId: number;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Serialize eligibility checks for the same email so concurrent
+      // submissions cannot both pass the count and trigger duplicate renders,
+      // address rows, or owner notifications.
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`free-video:${normalizedEmail}`]);
+      const existing = await client.query(
+        `SELECT COUNT(*) AS cnt
+           FROM characters
+          WHERE parent_email = $1
+            AND subscription_status = 'free-sample'`,
+        [normalizedEmail],
+      );
+      if (parseInt(existing.rows[0].cnt, 10) >= maxAllowed) {
+        await client.query('ROLLBACK');
+        if (reservedIpAt !== undefined && freeVideoIpRequests.get(ip) === reservedIpAt) {
+          freeVideoIpRequests.delete(ip);
+        }
+        console.log(`[free-video] Submission cap reached for ${normalizedEmail} (max ${maxAllowed})`);
+        res.json({ success: true, already_claimed: true });
+        return;
+      }
+
+      const insertResult = await client.query<{ id: number }>(
+        `INSERT INTO characters (parent_email, child_name, child_age, character_type, build, sidekick, theme, subscription_status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'free-sample')
+         RETURNING id`,
+        [
+          normalizedEmail,
+          child_name.trim(),
+          resolvedAge,
+          character_type ?? 'boy',
+          'average',
+          sidekick && sidekick !== 'none' ? sidekick : 'dragon',
+          theme,
+        ],
+      );
+      characterId = insertResult.rows[0].id;
+
+      if (hasShippingAddress) {
+        await client.query(
+          `INSERT INTO shipping_addresses
+             (parent_email, recipient_name, address_line1, address_line2, city, state, postal_code, country)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            normalizedEmail,
+            shippingAddress.shipping_name,
+            shippingAddress.address_line1,
+            shippingAddress.address_line2,
+            shippingAddress.city,
+            shippingAddress.state,
+            shippingAddress.postal_code,
+            shippingAddress.country,
+          ],
+        );
+      }
+
+      await client.query('COMMIT');
+      submissionCommitted = true;
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+
+    if (hasShippingAddress) {
+      sendShippingAddressNotification({
+        toEmail: normalizedEmail,
+        ...shippingAddress,
+      }).catch((e: unknown) => {
+        console.error('[free-video] shipping address notification failed:', (e as Error).message);
+      });
+    }
 
     const char: Character = {
       child_name: child_name.trim(),
@@ -944,8 +1158,11 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
 
     runRenderJob(job, char).catch(() => {});
 
-    res.json({ success: true, already_claimed: false, job_id: job.id, character_id: insertResult.rows[0].id });
+    res.json({ success: true, already_claimed: false, job_id: job.id, character_id: characterId });
   } catch (e: any) {
+    if (!submissionCommitted && reservedIpAt !== undefined && freeVideoIpRequests.get(ip) === reservedIpAt) {
+      freeVideoIpRequests.delete(ip);
+    }
     console.error('[free-video] error:', e.message);
     res.status(500).json({ success: false, error: e.message });
   }
