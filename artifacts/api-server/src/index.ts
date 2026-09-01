@@ -52,6 +52,15 @@ if (!process.env.ANTHROPIC_API_KEY) {
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+const DEFAULT_SQUISHY_INVENTORY = 20;
+
+function getSquishyInventory(): number {
+  const configured = Number.parseInt(process.env.SQUISHY_INVENTORY ?? '', 10);
+  return Number.isInteger(configured) && configured >= 0
+    ? configured
+    : DEFAULT_SQUISHY_INVENTORY;
+}
+
 // Ensure shipping address storage exists before address requests are handled.
 const shippingAddressMigration = pool.query(`
   CREATE TABLE IF NOT EXISTS shipping_addresses (
@@ -73,6 +82,38 @@ const shippingAddressMigration = pool.query(`
   return true;
 }).catch((e: any) => {
   console.error('[db] shipping_addresses migration failed:', e.message);
+  return false;
+});
+
+// Ensure squishy claims storage exists before inventory requests are handled.
+const squishyClaimsMigration = pool.query(`
+  CREATE TABLE IF NOT EXISTS squishy_claims (
+    id          SERIAL PRIMARY KEY,
+    claimed_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS squishy_claims_claimed_at_idx
+    ON squishy_claims (claimed_at DESC);
+`).then(() => {
+  console.log('[db] squishy_claims table ensured');
+  return true;
+}).catch((e: any) => {
+  console.error('[db] squishy_claims migration failed:', e.message);
+  return false;
+});
+
+const squishyClaimLinkMigration = Promise.all([
+  shippingAddressMigration,
+  squishyClaimsMigration,
+]).then(async ([addressStorageReady, squishyStorageReady]) => {
+  if (!addressStorageReady || !squishyStorageReady) return false;
+  await pool.query(`
+    ALTER TABLE shipping_addresses
+      ADD COLUMN IF NOT EXISTS squishy_claim_id INTEGER UNIQUE REFERENCES squishy_claims(id)
+  `);
+  console.log('[db] shipping address claim link ensured');
+  return true;
+}).catch((e: any) => {
+  console.error('[db] shipping address claim link migration failed:', e.message);
   return false;
 });
 
@@ -853,14 +894,15 @@ app.get('/admin/addresses', requireAdminBasic, (_req, res) => {
 
 app.get('/api/admin/addresses', requireAdminBasic, async (_req, res): Promise<void> => {
   try {
-    if (!(await shippingAddressMigration)) {
+    if (!(await squishyClaimLinkMigration)) {
       res.status(503).json({ error: 'Address storage is unavailable' });
       return;
     }
 
     const result = await pool.query(`
       SELECT id, parent_email, recipient_name, address_line1, address_line2,
-             city, state, postal_code, country, submitted_at
+             city, state, postal_code, country, submitted_at,
+             squishy_claim_id, (squishy_claim_id IS NOT NULL) AS squishy_claimed
       FROM shipping_addresses
       ORDER BY submitted_at DESC, id DESC
     `);
@@ -868,6 +910,28 @@ app.get('/api/admin/addresses', requireAdminBasic, async (_req, res): Promise<vo
   } catch (e: any) {
     console.error('[admin] address list failed:', e.message);
     res.status(500).json({ error: 'Unable to load addresses' });
+  }
+});
+
+app.get('/api/squishy-inventory', async (_req, res): Promise<void> => {
+  try {
+    if (!(await squishyClaimsMigration)) {
+      res.status(503).json({ error: 'Squishy inventory is temporarily unavailable' });
+      return;
+    }
+
+    const inventory = getSquishyInventory();
+    const result = await pool.query<{ claimed: string }>(
+      'SELECT COUNT(*)::text AS claimed FROM squishy_claims',
+    );
+    const claimed = Number.parseInt(result.rows[0]?.claimed ?? '0', 10);
+    const remaining = Math.max(0, inventory - claimed);
+
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ inventory, claimed, remaining });
+  } catch (e: any) {
+    console.error('[squishy] inventory lookup failed:', e.message);
+    res.status(500).json({ error: 'Unable to check squishy inventory' });
   }
 });
 
@@ -1012,6 +1076,19 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
       shippingAddress.state,
       shippingAddress.postal_code,
     ].some(Boolean);
+    const normalizedCountry = shippingAddress.country?.toLowerCase().replaceAll('.', '').trim();
+    const isUsAddress = normalizedCountry === 'us'
+      || normalizedCountry === 'usa'
+      || normalizedCountry === 'united states'
+      || normalizedCountry === 'united states of america';
+    const hasClaimableShippingAddress = Boolean(
+      shippingAddress.shipping_name
+      && shippingAddress.address_line1
+      && shippingAddress.city
+      && shippingAddress.state
+      && shippingAddress.postal_code
+      && isUsAddress,
+    );
 
     // ── Test-account bypass: skip IP rate limit but still cap at 3 submissions ──
     // Add emails here for internal testing only. Never grants unlimited access.
@@ -1021,9 +1098,11 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
     const normalizedEmail = parent_email.toLowerCase().trim();
     const isBypassEmail   = TEST_BYPASS_EMAILS.has(normalizedEmail);
 
-    if (hasShippingAddress && !(await shippingAddressMigration)) {
-      res.status(503).json({ error: 'Shipping address storage is temporarily unavailable. Please try again.' });
-      return;
+    if (hasShippingAddress) {
+      if (!(await squishyClaimLinkMigration)) {
+        res.status(503).json({ error: 'Shipping address storage is temporarily unavailable. Please try again.' });
+        return;
+      }
     }
 
     // ── Rate limit: 1 request per IP per hour (bypass emails skip this) ───
@@ -1046,13 +1125,15 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
 
     // ── Submission cap: 1 per email for real users; TEST_BYPASS_MAX for testers ──
     const maxAllowed = isBypassEmail ? TEST_BYPASS_MAX : 1;
+    let squishyClaimed = false;
+    let squishyRemaining: number | null = null;
 
     // Default to 6 when the form doesn't collect an age — avoids the
     // child_age NOT NULL constraint violation.
     const resolvedAge = Number.isFinite(child_age) && (child_age as number) > 0 ? Number(child_age) : 6;
 
-    // Save the character and optional shipping address together so a failed
-    // address write cannot leave behind a render-triggering character record.
+    // Save the character, optional shipping address, and optional squishy claim
+    // together so a failed write cannot leave behind partial fulfillment data.
     let characterId: number;
     const client = await pool.connect();
     try {
@@ -1096,10 +1177,36 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
       characterId = insertResult.rows[0].id;
 
       if (hasShippingAddress) {
+        let squishyClaimId: number | null = null;
+        if (hasClaimableShippingAddress) {
+          // Serialize all inventory claims across emails. The conditional INSERT
+          // reserves one squishy only while inventory remains, even when several
+          // people submit addresses at the same time.
+          await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['squishy-inventory']);
+          const inventory = getSquishyInventory();
+          const claimResult = await client.query<{ id: number }>(
+            `INSERT INTO squishy_claims (claimed_at)
+             SELECT now()
+             WHERE (SELECT COUNT(*) FROM squishy_claims) < $1
+             RETURNING id`,
+            [inventory],
+          );
+          squishyClaimId = claimResult.rows[0]?.id ?? null;
+          squishyClaimed = squishyClaimId !== null;
+
+          const claimCount = await client.query<{ claimed: string }>(
+            'SELECT COUNT(*)::text AS claimed FROM squishy_claims',
+          );
+          squishyRemaining = Math.max(
+            0,
+            inventory - Number.parseInt(claimCount.rows[0]?.claimed ?? '0', 10),
+          );
+        }
+
         await client.query(
           `INSERT INTO shipping_addresses
-             (parent_email, recipient_name, address_line1, address_line2, city, state, postal_code, country)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+             (parent_email, recipient_name, address_line1, address_line2, city, state, postal_code, country, squishy_claim_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
           [
             normalizedEmail,
             shippingAddress.shipping_name,
@@ -1109,6 +1216,7 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
             shippingAddress.state,
             shippingAddress.postal_code,
             shippingAddress.country,
+            squishyClaimId,
           ],
         );
       }
@@ -1125,6 +1233,7 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
     if (hasShippingAddress) {
       sendShippingAddressNotification({
         toEmail: normalizedEmail,
+        squishy_claimed: squishyClaimed,
         ...shippingAddress,
       }).catch((e: unknown) => {
         console.error('[free-video] shipping address notification failed:', (e as Error).message);
@@ -1158,7 +1267,14 @@ app.post('/api/free-video', async (req, res): Promise<void> => {
 
     runRenderJob(job, char).catch(() => {});
 
-    res.json({ success: true, already_claimed: false, job_id: job.id, character_id: characterId });
+    res.json({
+      success: true,
+      already_claimed: false,
+      job_id: job.id,
+      character_id: characterId,
+      squishy_claimed: squishyClaimed,
+      squishy_remaining: squishyRemaining,
+    });
   } catch (e: any) {
     if (!submissionCommitted && reservedIpAt !== undefined && freeVideoIpRequests.get(ip) === reservedIpAt) {
       freeVideoIpRequests.delete(ip);

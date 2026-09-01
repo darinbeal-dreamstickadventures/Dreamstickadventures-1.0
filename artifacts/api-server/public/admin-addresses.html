@@ -103,6 +103,7 @@ tbody tr:hover { background: rgba(155, 111, 255, 0.06); }
             <th>Full address</th>
             <th>Date submitted</th>
             <th>Email address</th>
+            <th>Squishy</th>
           </tr>
         </thead>
         <tbody id="addresses"></tbody>
@@ -155,6 +156,7 @@ function renderAddresses(addresses) {
     addCell(row, fullAddress(address), 'address');
     addCell(row, new Date(address.submitted_at).toLocaleString());
     addCell(row, valueOrDash(address.parent_email));
+    addCell(row, address.squishy_claimed ? 'CLAIMED' : 'No claim');
     tableBody.appendChild(row);
   }
 

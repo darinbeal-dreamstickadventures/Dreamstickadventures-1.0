@@ -642,6 +642,7 @@ const SHIPPING_NOTIFICATION_EMAIL = 'darinbeal@gmail.com';
 
 export interface ShippingAddressNotificationOptions {
   toEmail: string;
+  squishy_claimed: boolean;
   shipping_name: string | null;
   address_line1: string | null;
   address_line2: string | null;
@@ -693,6 +694,7 @@ function buildShippingAddressNotificationHtml(opts: ShippingAddressNotificationO
         <tr>
           <td style="padding:36px 40px;color:#e2d9f3;">
             <h1 style="margin:0 0 22px;color:#ffffff;font-size:24px;">New shipping address submitted</h1>
+            <p style="margin:0 0 22px;padding:12px 14px;border-radius:8px;background:${opts.squishy_claimed ? '#14532d' : '#3f3f46'};color:#ffffff;font-size:15px;font-weight:700;">${opts.squishy_claimed ? 'Squishy claim: CLAIMED' : 'Squishy claim: NO CLAIM'}</p>
             <p style="margin:0 0 8px;color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:1px;">Name</p>
             <p style="margin:0 0 22px;font-size:16px;">${escapeEmailHtml(opts.shipping_name) || 'Not provided'}</p>
             <p style="margin:0 0 8px;color:#94a3b8;font-size:13px;text-transform:uppercase;letter-spacing:1px;">Address</p>
