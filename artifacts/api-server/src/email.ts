@@ -285,7 +285,10 @@ function buildDrip1Html(opts: DripEmailOptions): string {
     ${p(`Imagine getting that same magic delivered to your inbox every single week.`)}
     ${p(`A new story. A new adventure.<br><strong style="color:#c4b5fd;">${opts.childName}</strong> as the hero every time.`)}
     ${p(`For less than a cup of coffee a week, you can keep the bedtime magic going.`)}
-    ${ctaButton(`Keep the Adventure Going – $7/mo`, `${CHECKOUT_URL}?email=${encodeURIComponent(opts.toEmail)}`)}`,
+    ${ctaButton(`Keep the Adventure Going – $7/mo`, `${CHECKOUT_URL}?email=${encodeURIComponent(opts.toEmail)}`)}
+    <p style="margin:0;color:#94a3b8;font-size:15px;line-height:1.7;">
+      P.S. Keep an eye on your mailbox! 📦 Your mystery surprise is on its way to ${opts.childName} — it should arrive within the next 2-3 weeks. We think they're going to LOVE it! ⭐
+    </p>`,
   );
 }
 
