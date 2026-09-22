@@ -134,6 +134,28 @@ pool.query(`
     ADD COLUMN IF NOT EXISTS last_failure_reason TEXT
 `).then(() => console.log('[db] failed_attempts columns ensured'))
   .catch((e: any) => console.error('[db] failed_attempts migration failed:', e.message));
+
+// Keep an audit trail for manual admin subscription-status changes.
+const adminUserStatusLogMigration = pool.query(`
+  CREATE TABLE IF NOT EXISTS admin_user_status_log (
+    id            SERIAL PRIMARY KEY,
+    character_id  INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    parent_email  TEXT NOT NULL,
+    action        TEXT NOT NULL CHECK (action IN ('activate', 'deactivate')),
+    note          TEXT NOT NULL DEFAULT '',
+    changed_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS admin_user_status_log_changed_at_idx
+    ON admin_user_status_log (changed_at DESC);
+  CREATE INDEX IF NOT EXISTS admin_user_status_log_character_id_idx
+    ON admin_user_status_log (character_id);
+`).then(() => {
+  console.log('[db] admin user status log ensured');
+  return true;
+}).catch((e: any) => {
+  console.error('[db] admin user status log migration failed:', e.message);
+  return false;
+});
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -841,6 +863,17 @@ app.post('/api/admin/run-nightly-scheduler', async (req, res): Promise<void> => 
 // Protect direct render requests. Unlike /api/free-video, this endpoint is
 // intended only for trusted admin tooling and must never be publicly callable.
 function extractAdminToken(req: express.Request): string {
+  const directHeader = req.headers['admin_token']
+    ?? req.headers['admin-token']
+    ?? req.headers['x-admin-token'];
+
+  if (typeof directHeader === 'string' && directHeader.trim()) {
+    return directHeader.trim();
+  }
+  if (Array.isArray(directHeader) && directHeader[0]?.trim()) {
+    return directHeader[0].trim();
+  }
+
   const authorization = req.headers.authorization ?? '';
 
   if (authorization.startsWith('Bearer ')) {
@@ -872,6 +905,101 @@ function requireAdminBearer(req: express.Request, res: express.Response, next: e
   next();
 }
 
+const ADMIN_CHARACTER_COLUMNS = `
+  id, parent_email, child_name, child_age, character_type, build,
+  hair_style, hair_color, skin_tone, outfit_color, glow_color,
+  accessories, sidekick, theme, subscription_status, created_at,
+  last_video_sent_at, drip_email_1_sent_at, drip_email_2_sent_at,
+  drip_email_3_sent_at, drip_email_4_sent_at
+`;
+
+function parseAdminUserStatusBody(body: unknown): { email: string; note: string } | null {
+  if (!body || typeof body !== 'object') return null;
+
+  const input = body as { email?: unknown; note?: unknown };
+  if (typeof input.email !== 'string') return null;
+  if (input.note !== undefined && typeof input.note !== 'string') return null;
+
+  const email = input.email.trim().toLowerCase();
+  const note = typeof input.note === 'string' ? input.note.trim() : '';
+
+  if (!email || email.length > 320 || note.length > 1000) return null;
+  return { email, note };
+}
+
+async function updateAdminUserStatus(
+  req: express.Request,
+  res: express.Response,
+  status: 'active' | 'free-sample',
+  action: 'activate' | 'deactivate',
+): Promise<void> {
+  if (!(await adminUserStatusLogMigration)) {
+    res.status(503).json({ error: 'Admin user status logging is unavailable' });
+    return;
+  }
+
+  const parsed = parseAdminUserStatusBody(req.body);
+  if (!parsed) {
+    res.status(400).json({
+      error: 'Request body must include an email and an optional note string',
+    });
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const existing = await client.query(
+      `SELECT ${ADMIN_CHARACTER_COLUMNS}
+       FROM characters
+       WHERE lower(parent_email) = $1
+       ORDER BY id DESC
+       LIMIT 1
+       FOR UPDATE`,
+      [parsed.email],
+    );
+
+    if (existing.rows.length === 0) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ error: `No character found for ${parsed.email}` });
+      return;
+    }
+
+    const characterId = existing.rows[0].id;
+    const previousStatus = existing.rows[0].subscription_status;
+    const updated = await client.query(
+      `UPDATE characters
+       SET subscription_status = $1
+       WHERE id = $2
+       RETURNING ${ADMIN_CHARACTER_COLUMNS}`,
+      [status, characterId],
+    );
+
+    await client.query(
+      `INSERT INTO admin_user_status_log
+        (character_id, parent_email, action, note)
+       VALUES ($1, $2, $3, $4)`,
+      [characterId, parsed.email, action, parsed.note],
+    );
+
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      action,
+      previous_status: previousStatus,
+      character: updated.rows[0],
+    });
+  } catch (e: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error(`[admin] user ${action} failed:`, e.message);
+    res.status(500).json({ error: `Unable to ${action} user` });
+  } finally {
+    client.release();
+  }
+}
+
 // Browser-friendly protection for the address page. Browsers can prompt for
 // HTTP Basic credentials; use any username and ADMIN_TOKEN as the password.
 // Bearer tokens remain accepted for scripted access to the same endpoint.
@@ -887,6 +1015,34 @@ function requireAdminBasic(req: express.Request, res: express.Response, next: ex
 
   next();
 }
+
+app.post('/api/admin/activate-user', requireAdminBearer, async (req, res): Promise<void> => {
+  await updateAdminUserStatus(req, res, 'active', 'activate');
+});
+
+app.post('/api/admin/deactivate-user', requireAdminBearer, async (req, res): Promise<void> => {
+  await updateAdminUserStatus(req, res, 'free-sample', 'deactivate');
+});
+
+app.get('/api/admin/active-users', requireAdminBearer, async (_req, res): Promise<void> => {
+  if (!(await adminUserStatusLogMigration)) {
+    res.status(503).json({ error: 'Admin user status logging is unavailable' });
+    return;
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT ${ADMIN_CHARACTER_COLUMNS}
+       FROM characters
+       WHERE subscription_status = 'active'
+       ORDER BY id DESC`,
+    );
+    res.json({ success: true, count: result.rows.length, users: result.rows });
+  } catch (e: any) {
+    console.error('[admin] active user list failed:', e.message);
+    res.status(500).json({ error: 'Unable to load active users' });
+  }
+});
 
 app.get('/admin/addresses', requireAdminBasic, (_req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'admin-addresses.html'));
