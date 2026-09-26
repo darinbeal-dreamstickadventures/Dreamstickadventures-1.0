@@ -50,9 +50,15 @@ if (!process.env.ANTHROPIC_API_KEY) {
   throw new Error('ANTHROPIC_API_KEY must be set');
 }
 
+// pg-connection-string lets sslmode in the URL override the SSL object below.
+// Preserve explicit non-SSL local databases while handling Railway TLS here.
+const databaseUrl = new URL(process.env.DATABASE_URL);
+const sslMode = databaseUrl.searchParams.get('sslmode');
+databaseUrl.searchParams.delete('sslmode');
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  connectionString: databaseUrl.toString(),
+  ssl: sslMode === 'disable' ? false : { rejectUnauthorized: false },
 });
 
 const DEFAULT_SQUISHY_INVENTORY = 20;

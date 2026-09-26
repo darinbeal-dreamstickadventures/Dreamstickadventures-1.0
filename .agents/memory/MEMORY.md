@@ -3,3 +3,4 @@
 - [Render job concurrency & OOM](render-job-extraction-concurrency.md) — cap concurrent ffmpeg frame-extraction processes; overlapping/retried render jobs can stack orphaned extractions and OOM the server.
 - [Stripe checkout ↔ character linking](stripe-checkout-character-linking.md) — no webhook secret configured, so checkout completion is reconciled via session-retrieval + metadata email, not a webhook handler.
 - [Replit 8 GiB image size — root causes and fix](replit-image-size-fix.md) — `.git/objects` is in the Repl layer; must filter-branch + gc to purge binary blobs; use pkgs.ffmpeg (Nix layer) not npm packages.
+- [PostgreSQL TLS environments](postgres-tls-environments.md) — Railway production has an untrusted cert chain; the local development database rejects TLS, so connection changes must support both.
